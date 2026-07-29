@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #f6f7f9;
+      color: #1f2933;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      line-height: 1.3;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .staff {
+      color: #52606d;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      margin-top: 12px;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    select,
+    input,
+    textarea,
+    button {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 16px;
+      border-radius: 6px;
+    }
+
+    select,
+    input,
+    textarea {
+      padding: 11px;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tabs button {
+      padding: 10px;
+      border: 1px solid #06c755;
+      background: #fff;
+      color: #06a949;
+      font-weight: 700;
+    }
+
+    .tabs button.active {
+      background: #06c755;
+      color: #fff;
+    }
+
+    .type-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .type-buttons button {
+      padding: 12px;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 700;
+    }
+
+    .type-buttons button.active {
+      border-color: #06c755;
+      background: #e8f8ee;
+      color: #047a33;
+    }
+
+    .submit {
+      margin-top: 18px;
+      padding: 13px;
+      border: 0;
+      background: #06c755;
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .submit:disabled {
+      background: #a6b0ba;
+    }
+
+    .message {
+      min-height: 22px;
+      margin-top: 12px;
+      color: #334e68;
+      font-weight: 700;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>自費リハ管理</h1>
+
+  <div class="panel">
+    <div id="staff" class="staff">読み込み中...</div>
+
+    <div class="tabs">
+      <button id="visitTab" class="active" type="button" onclick="switchMode('visit')">実績</button>
+      <button id="scheduleTab" type="button" onclick="switchMode('schedule')">予定</button>
+    </div>
+
+    <label for="userName">利用者</label>
+    <select id="userName"></select>
+
+    <div id="visitForm">
+      <label>種別</label>
+      <div class="type-buttons">
+        <button id="startButton" type="button" onclick="setVisitType('開始')">開始</button>
+        <button id="endButton" class="active" type="button" onclick="setVisitType('終了')">終了</button>
+      </div>
+
+      <label for="visitDate">実施日</label>
+      <input type="date" id="visitDate">
+
+      <label for="visitTime">時刻</label>
+      <input type="time" id="visitTime">
+
+      <button id="visitSubmit" class="submit" type="button" onclick="recordVisit()">実績を登録</button>
+    </div>
+
+    <div id="scheduleForm" class="hidden">
+      <label for="dates">訪問予定日</label>
+      <textarea id="dates" placeholder="例：7/4、7/11、7/18、7/26"></textarea>
+
+      <button id="scheduleSubmit" class="submit" type="button" onclick="recordSchedule()">予定を登録</button>
+    </div>
+
+    <div id="message" class="message"></div>
+  </div>
+
+  <script>
+    const GAS_URL = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
+    const LIFF_ID = "YOUR_LIFF_ID";
+
+    let lineUserId = "";
+    let staffName = "";
+    let visitType = "終了";
+    let jsonpCounter = 0;
+
+    function jsonp(url) {
+      return new Promise((resolve, reject) => {
+        const callbackName = "jsonp_cb_" + jsonpCounter++;
+        const script = document.createElement("script");
+
+        window[callbackName] = data => {
+          resolve(data);
+          delete window[callbackName];
+          script.remove();
+        };
+
+        script.onerror = () => {
+          delete window[callbackName];
+          script.remove();
+          reject(new Error("通信に失敗しました"));
+        };
+
+        script.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "callback=" + callbackName;
+        document.body.appendChild(script);
+      });
+    }
+
+    function setMessage(text) {
+      document.getElementById("message").innerText = text || "";
+    }
+
+    function setDisabled(disabled) {
+      document.getElementById("visitSubmit").disabled = disabled;
+      document.getElementById("scheduleSubmit").disabled = disabled;
+    }
+
+    function setToday() {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mi = String(now.getMinutes()).padStart(2, "0");
+
+      document.getElementById("visitDate").value = yyyy + "-" + mm + "-" + dd;
+      document.getElementById("visitTime").value = hh + ":" + mi;
+    }
+
+    function switchMode(mode) {
+      const isVisit = mode === "visit";
+
+      document.getElementById("visitTab").classList.toggle("active", isVisit);
+      document.getElementById("scheduleTab").classList.toggle("active", !isVisit);
+      document.getElementById("visitForm").classList.toggle("hidden", !isVisit);
+      document.getElementById("scheduleForm").classList.toggle("hidden", isVisit);
+      setMessage("");
+    }
+
+    function setVisitType(type) {
+      visitType = type;
+      document.getElementById("startButton").classList.toggle("active", type === "開始");
+      document.getElementById("endButton").classList.toggle("active", type === "終了");
+    }
+
+    function loadUsers() {
+      const params = new URLSearchParams({
+        action: "getUsers",
+        lineUserId: lineUserId
+      });
+
+      return jsonp(GAS_URL + "?" + params.toString()).then(data => {
+        const select = document.getElementById("userName");
+        select.innerHTML = "";
+
+        if (!data.success) {
+          document.getElementById("staff").innerText = data.message;
+          setDisabled(true);
+          return;
+        }
+
+        staffName = data.staffName;
+        document.getElementById("staff").innerText = "スタッフ：" + staffName;
+
+        data.users.forEach(user => {
+          const option = document.createElement("option");
+          option.value = user.name;
+          option.textContent = user.name;
+          select.appendChild(option);
+        });
+
+        if (data.users.length === 0) {
+          setMessage("担当利用者が登録されていません。管理者へ確認してください。");
+          setDisabled(true);
+        }
+      });
+    }
+
+    function recordVisit() {
+      const params = new URLSearchParams({
+        action: "recordVisit",
+        lineUserId: lineUserId,
+        userName: document.getElementById("userName").value,
+        visitType: visitType,
+        visitDate: document.getElementById("visitDate").value,
+        visitTime: document.getElementById("visitTime").value
+      });
+
+      setDisabled(true);
+      setMessage("登録中...");
+
+      jsonp(GAS_URL + "?" + params.toString())
+        .then(data => setMessage(data.message))
+        .catch(error => setMessage("登録に失敗しました：" + error.message))
+        .finally(() => setDisabled(false));
+    }
+
+    function recordSchedule() {
+      const params = new URLSearchParams({
+        action: "recordSchedule",
+        lineUserId: lineUserId,
+        userName: document.getElementById("userName").value,
+        dates: document.getElementById("dates").value
+      });
+
+      setDisabled(true);
+      setMessage("登録中...");
+
+      jsonp(GAS_URL + "?" + params.toString())
+        .then(data => setMessage(data.message))
+        .catch(error => setMessage("登録に失敗しました：" + error.message))
+        .finally(() => setDisabled(false));
+    }
+
+    setToday();
+    setDisabled(true);
+
+    liff.init({ liffId: LIFF_ID })
+      .then(() => {
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
+
+        return liff.getProfile();
+      })
+      .then(profile => {
+        if (!profile) return;
+        lineUserId = profile.userId;
+        return loadUsers();
+      })
+      .then(() => setDisabled(false))
+      .catch(error => {
+        setDisabled(true);
+        setMessage("LIFF初期化エラー：" + error.message);
+      });
+  </script>
+</body>
+</html>
