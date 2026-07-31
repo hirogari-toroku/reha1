@@ -154,8 +154,8 @@
     <div id="visitForm">
       <label>種別</label>
       <div class="type-buttons">
-        <button id="startButton" type="button" onclick="setVisitType('開始')">開始</button>
-        <button id="endButton" class="active" type="button" onclick="setVisitType('終了')">終了</button>
+        <button id="startButton" class="active" type="button" onclick="setVisitType('開始')">開始</button>
+        <button id="endButton" type="button" onclick="setVisitType('終了')">終了</button>
       </div>
 
       <label for="visitDate">実施日</label>
@@ -183,21 +183,28 @@
 
     let lineUserId = "";
     let staffName = "";
-    let visitType = "終了";
+    let visitType = "開始";
     let jsonpCounter = 0;
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
         const callbackName = "jsonp_cb_" + jsonpCounter++;
         const script = document.createElement("script");
+        const timer = setTimeout(() => {
+          delete window[callbackName];
+          script.remove();
+          reject(new Error("通信がタイムアウトしました。LIFF操作ログを確認してください。"));
+        }, 20000);
 
         window[callbackName] = data => {
+          clearTimeout(timer);
           resolve(data);
           delete window[callbackName];
           script.remove();
         };
 
         script.onerror = () => {
+          clearTimeout(timer);
           delete window[callbackName];
           script.remove();
           reject(new Error("通信に失敗しました"));
@@ -323,7 +330,14 @@
       setMessage("登録中...");
 
       jsonp(GAS_URL + "?" + params.toString())
-        .then(data => setMessage(data.message))
+        .then(data => {
+          setMessage(data.message);
+
+          if (data && data.success && visitType === "開始") {
+            setVisitType("終了");
+            setMessage(data.message + "\n次は終了を登録できます。");
+          }
+        })
         .catch(error => setMessage("登録に失敗しました：" + error.message))
         .finally(() => setDisabled(false));
     }
