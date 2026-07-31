@@ -172,8 +172,8 @@
   </div>
 
   <script>
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ/exec";
-    const LIFF_ID = "2010856600-yxOaV2Np";
+    const GAS_URL = "https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec";
+    const LIFF_ID = "YOUR_LIFF_ID";
 
     let lineUserId = "";
     let staffName = "";
@@ -197,7 +197,7 @@
           reject(new Error("通信に失敗しました"));
         };
 
-        script.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "callback=" + callbackName;
+        script.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "callback=" + callbackName + "&_=" + Date.now();
         document.body.appendChild(script);
       });
     }
@@ -323,6 +323,7 @@
       .then(profile => {
         if (!profile) return;
         lineUserId = profile.userId;
+        document.getElementById("staff").innerText = "LINEユーザーID確認中：" + lineUserId;
         return loadUsers();
       })
       .then(() => setDisabled(false))
