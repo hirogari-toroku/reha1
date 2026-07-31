@@ -70,6 +70,53 @@
       resize: vertical;
     }
 
+    .schedule-date-row {
+      display: grid;
+      grid-template-columns: 1fr 96px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .add-date {
+      padding: 11px;
+      border: 1px solid #06c755;
+      background: #fff;
+      color: #06a949;
+      font-weight: 700;
+    }
+
+    .selected-dates {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 34px;
+      margin-top: 10px;
+    }
+
+    .date-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: auto;
+      padding: 8px 10px;
+      border: 1px solid #c8d0d9;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f2933;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .date-chip button {
+      width: auto;
+      padding: 0 4px;
+      border: 0;
+      background: transparent;
+      color: #b42318;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
     .tabs {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -168,8 +215,12 @@
     </div>
 
     <div id="scheduleForm" class="hidden">
-      <label for="dates">訪問予定日</label>
-      <textarea id="dates" placeholder="例：7/4、7/11、7/18、7/26"></textarea>
+      <label for="scheduleDate">訪問予定日</label>
+      <div class="schedule-date-row">
+        <input type="date" id="scheduleDate">
+        <button class="add-date" type="button" onclick="addScheduleDate()">追加</button>
+      </div>
+      <div id="selectedDates" class="selected-dates"></div>
 
       <button id="scheduleSubmit" class="submit" type="button" onclick="recordSchedule()">予定を登録</button>
     </div>
@@ -185,6 +236,7 @@
     let staffName = "";
     let visitType = "開始";
     let jsonpCounter = 0;
+    let scheduleDates = [];
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -250,6 +302,60 @@
       visitType = type;
       document.getElementById("startButton").classList.toggle("active", type === "開始");
       document.getElementById("endButton").classList.toggle("active", type === "終了");
+    }
+
+    function formatScheduleDate(value) {
+      const parts = String(value || "").split("-");
+      if (parts.length !== 3) return "";
+
+      const month = Number(parts[1]);
+      const day = Number(parts[2]);
+      if (!month || !day) return "";
+
+      return month + "/" + day;
+    }
+
+    function renderScheduleDates() {
+      const area = document.getElementById("selectedDates");
+      area.innerHTML = "";
+
+      scheduleDates.forEach(value => {
+        const chip = document.createElement("span");
+        chip.className = "date-chip";
+        chip.textContent = formatScheduleDate(value);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.textContent = "×";
+        removeButton.onclick = () => removeScheduleDate(value);
+
+        chip.appendChild(removeButton);
+        area.appendChild(chip);
+      });
+    }
+
+    function addScheduleDate() {
+      const input = document.getElementById("scheduleDate");
+      const value = input.value;
+
+      if (!value) {
+        setMessage("訪問予定日を選択してください。");
+        return;
+      }
+
+      if (!scheduleDates.includes(value)) {
+        scheduleDates.push(value);
+        scheduleDates.sort();
+      }
+
+      input.value = "";
+      renderScheduleDates();
+      setMessage("");
+    }
+
+    function removeScheduleDate(value) {
+      scheduleDates = scheduleDates.filter(date => date !== value);
+      renderScheduleDates();
     }
 
     function loadUsers() {
@@ -338,18 +444,29 @@
     }
 
     function recordSchedule() {
+      if (scheduleDates.length === 0) {
+        setMessage("訪問予定日を1つ以上追加してください。");
+        return;
+      }
+
       const params = new URLSearchParams({
         action: "recordSchedule",
         lineUserId: lineUserId,
         userName: document.getElementById("userName").value,
-        dates: document.getElementById("dates").value
+        dates: scheduleDates.join(",")
       });
 
       setDisabled(true);
       setMessage("登録中...");
 
       jsonp(GAS_URL + "?" + params.toString())
-        .then(data => setMessage(data.message))
+        .then(data => {
+          if (data.success) {
+            scheduleDates = [];
+            renderScheduleDates();
+          }
+          setMessage(data.message);
+        })
         .catch(error => setMessage("登録に失敗しました：" + error.message))
         .finally(() => setDisabled(false));
     }
