@@ -332,11 +332,6 @@
       jsonp(GAS_URL + "?" + params.toString())
         .then(data => {
           setMessage(data.message);
-
-          if (data && data.success && visitType === "開始") {
-            setVisitType("終了");
-            setMessage(data.message + "\n次は終了を登録できます。");
-          }
         })
         .catch(error => setMessage("登録に失敗しました：" + error.message))
         .finally(() => setDisabled(false));
