@@ -250,13 +250,15 @@
         select.innerHTML = "";
 
         if (!data.success) {
-          document.getElementById("staff").innerText = data.message;
+          document.getElementById("staff").innerText =
+            data.message + "\nLIFF用LINEユーザーID：" + lineUserId;
           setDisabled(true);
           return;
         }
 
         staffName = data.staffName;
-        document.getElementById("staff").innerText = "スタッフ：" + staffName;
+        document.getElementById("staff").innerText =
+          "スタッフ：" + staffName + "\nLIFF用LINEユーザーID：" + lineUserId;
 
         data.users.forEach(user => {
           const option = document.createElement("option");
@@ -279,7 +281,23 @@
         displayName: displayName || ""
       });
 
-      return jsonp(GAS_URL + "?" + params.toString()).catch(() => null);
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          if (data && data.registered) {
+            document.getElementById("staff").innerText =
+              "スタッフ：" + data.staffName + "\nLIFF用LINEユーザーID：" + lineUserId;
+          } else {
+            document.getElementById("staff").innerText =
+              "ログイン記録済み。スタッフマスタへ下のIDを登録してください。\nLIFF用LINEユーザーID：" + lineUserId;
+          }
+          return data;
+        })
+        .catch(error => {
+          document.getElementById("staff").innerText =
+            "ログイン記録に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          setMessage("ログイン記録エラー：" + error.message);
+          return null;
+        });
     }
 
     function recordVisit() {
@@ -333,7 +351,8 @@
       .then(profile => {
         if (!profile) return;
         lineUserId = profile.userId;
-        document.getElementById("staff").innerText = "LINEユーザーID記録中：" + lineUserId;
+        document.getElementById("staff").innerText =
+          "LINEユーザーID記録中...\nLIFF用LINEユーザーID：" + lineUserId;
         return logLogin(profile.displayName).then(() => loadUsers());
       })
       .then(() => setDisabled(false))
