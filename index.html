@@ -70,21 +70,6 @@
       resize: vertical;
     }
 
-    .schedule-date-row {
-      display: grid;
-      grid-template-columns: 1fr 96px;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .add-date {
-      padding: 11px;
-      border: 1px solid #06c755;
-      background: #fff;
-      color: #06a949;
-      font-weight: 700;
-    }
-
     .selected-dates {
       display: flex;
       flex-wrap: wrap;
@@ -115,6 +100,73 @@
       color: #b42318;
       font-size: 16px;
       font-weight: 800;
+    }
+
+    .calendar {
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .calendar-nav {
+      display: grid;
+      grid-template-columns: 44px 1fr 44px;
+      align-items: center;
+      border-bottom: 1px solid #dde3ea;
+    }
+
+    .calendar-nav button {
+      height: 44px;
+      border: 0;
+      background: #fff;
+      color: #06a949;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .calendar-title {
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .weekdays,
+    .calendar-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+    }
+
+    .weekdays div {
+      padding: 8px 0;
+      background: #f6f7f9;
+      color: #52606d;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .calendar-day {
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      border-top: 1px solid #edf1f5;
+      border-right: 1px solid #edf1f5;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 700;
+    }
+
+    .calendar-day:nth-child(7n) {
+      border-right: 0;
+    }
+
+    .calendar-day.empty {
+      background: #f8fafc;
+    }
+
+    .calendar-day.selected {
+      background: #06c755;
+      color: #fff;
     }
 
     .tabs {
@@ -215,10 +267,23 @@
     </div>
 
     <div id="scheduleForm" class="hidden">
-      <label for="scheduleDate">訪問予定日</label>
-      <div class="schedule-date-row">
-        <input type="date" id="scheduleDate">
-        <button class="add-date" type="button" onclick="addScheduleDate()">追加</button>
+      <label>訪問予定日</label>
+      <div class="calendar">
+        <div class="calendar-nav">
+          <button type="button" onclick="moveScheduleMonth(-1)">‹</button>
+          <div id="calendarTitle" class="calendar-title"></div>
+          <button type="button" onclick="moveScheduleMonth(1)">›</button>
+        </div>
+        <div class="weekdays">
+          <div>日</div>
+          <div>月</div>
+          <div>火</div>
+          <div>水</div>
+          <div>木</div>
+          <div>金</div>
+          <div>土</div>
+        </div>
+        <div id="calendarDays" class="calendar-days"></div>
       </div>
       <div id="selectedDates" class="selected-dates"></div>
 
@@ -237,6 +302,7 @@
     let visitType = "開始";
     let jsonpCounter = 0;
     let scheduleDates = [];
+    let scheduleCalendarMonth = new Date();
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -286,6 +352,7 @@
 
       document.getElementById("visitDate").value = yyyy + "-" + mm + "-" + dd;
       document.getElementById("visitTime").value = hh + ":" + mi;
+      scheduleCalendarMonth = new Date(yyyy, now.getMonth(), 1);
     }
 
     function switchMode(mode) {
@@ -295,6 +362,7 @@
       document.getElementById("scheduleTab").classList.toggle("active", !isVisit);
       document.getElementById("visitForm").classList.toggle("hidden", !isVisit);
       document.getElementById("scheduleForm").classList.toggle("hidden", isVisit);
+      if (!isVisit) renderScheduleCalendar();
       setMessage("");
     }
 
@@ -313,6 +381,50 @@
       if (!month || !day) return "";
 
       return month + "/" + day;
+    }
+
+    function toDateValue(date) {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
+      return yyyy + "-" + mm + "-" + dd;
+    }
+
+    function renderScheduleCalendar() {
+      const year = scheduleCalendarMonth.getFullYear();
+      const month = scheduleCalendarMonth.getMonth();
+      const firstDay = new Date(year, month, 1).getDay();
+      const lastDate = new Date(year, month + 1, 0).getDate();
+      const area = document.getElementById("calendarDays");
+
+      document.getElementById("calendarTitle").innerText = year + "年" + (month + 1) + "月";
+      area.innerHTML = "";
+
+      for (let i = 0; i < firstDay; i++) {
+        const empty = document.createElement("div");
+        empty.className = "calendar-day empty";
+        area.appendChild(empty);
+      }
+
+      for (let day = 1; day <= lastDate; day++) {
+        const value = toDateValue(new Date(year, month, day));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "calendar-day";
+        button.textContent = day;
+        button.classList.toggle("selected", scheduleDates.includes(value));
+        button.onclick = () => toggleScheduleDate(value);
+        area.appendChild(button);
+      }
+    }
+
+    function moveScheduleMonth(amount) {
+      scheduleCalendarMonth = new Date(
+        scheduleCalendarMonth.getFullYear(),
+        scheduleCalendarMonth.getMonth() + amount,
+        1
+      );
+      renderScheduleCalendar();
     }
 
     function renderScheduleDates() {
@@ -334,27 +446,22 @@
       });
     }
 
-    function addScheduleDate() {
-      const input = document.getElementById("scheduleDate");
-      const value = input.value;
-
-      if (!value) {
-        setMessage("訪問予定日を選択してください。");
-        return;
-      }
-
-      if (!scheduleDates.includes(value)) {
+    function toggleScheduleDate(value) {
+      if (scheduleDates.includes(value)) {
+        scheduleDates = scheduleDates.filter(date => date !== value);
+      } else {
         scheduleDates.push(value);
         scheduleDates.sort();
       }
 
-      input.value = "";
+      renderScheduleCalendar();
       renderScheduleDates();
       setMessage("");
     }
 
     function removeScheduleDate(value) {
       scheduleDates = scheduleDates.filter(date => date !== value);
+      renderScheduleCalendar();
       renderScheduleDates();
     }
 
@@ -463,6 +570,7 @@
         .then(data => {
           if (data.success) {
             scheduleDates = [];
+            renderScheduleCalendar();
             renderScheduleDates();
           }
           setMessage(data.message);
