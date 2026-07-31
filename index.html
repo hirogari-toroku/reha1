@@ -272,6 +272,16 @@
       });
     }
 
+    function logLogin(displayName) {
+      const params = new URLSearchParams({
+        action: "logLogin",
+        lineUserId: lineUserId,
+        displayName: displayName || ""
+      });
+
+      return jsonp(GAS_URL + "?" + params.toString()).catch(() => null);
+    }
+
     function recordVisit() {
       const params = new URLSearchParams({
         action: "recordVisit",
@@ -323,8 +333,8 @@
       .then(profile => {
         if (!profile) return;
         lineUserId = profile.userId;
-        document.getElementById("staff").innerText = "LINEユーザーID確認中：" + lineUserId;
-        return loadUsers();
+        document.getElementById("staff").innerText = "LINEユーザーID記録中：" + lineUserId;
+        return logLogin(profile.displayName).then(() => loadUsers());
       })
       .then(() => setDisabled(false))
       .catch(error => {
