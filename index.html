@@ -57,6 +57,12 @@
       padding: 11px;
       border: 1px solid #c8d0d9;
       background: #fff;
+      color: #1f2933;
+    }
+
+    option {
+      color: #1f2933;
+      background: #fff;
     }
 
     textarea {
@@ -261,9 +267,12 @@
           "スタッフ：" + staffName + "\nLIFF用LINEユーザーID：" + lineUserId;
 
         data.users.forEach(user => {
+          const userName = typeof user === "string" ? user : user.name;
+          if (!userName) return;
+
           const option = document.createElement("option");
-          option.value = user.name;
-          option.textContent = user.name;
+          option.value = userName;
+          option.textContent = userName;
           select.appendChild(option);
         });
 
