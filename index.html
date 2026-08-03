@@ -129,6 +129,94 @@
     .hidden {
       display: none;
     }
+
+    .calendar {
+      margin-top: 8px;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .calendar-header {
+      display: grid;
+      grid-template-columns: 44px 1fr 44px;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      background: #f6f7f9;
+    }
+
+    .calendar-header button {
+      height: 36px;
+      padding: 0;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 800;
+    }
+
+    .calendar-title {
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .calendar-weekdays,
+    .calendar-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+    }
+
+    .calendar-weekdays div {
+      padding: 8px 0;
+      background: #eef2f6;
+      color: #52606d;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .calendar-day {
+      min-height: 42px;
+      padding: 0;
+      border: 0;
+      border-right: 1px solid #eef2f6;
+      border-bottom: 1px solid #eef2f6;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 700;
+    }
+
+    .calendar-day:nth-child(7n) {
+      border-right: 0;
+    }
+
+    .calendar-day.empty {
+      background: #f8fafc;
+      color: transparent;
+    }
+
+    .calendar-day.selected {
+      background: #06c755;
+      color: #fff;
+    }
+
+    .selected-dates {
+      min-height: 24px;
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .selected-date {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #e8f8ee;
+      color: #047a33;
+      font-size: 13px;
+      font-weight: 800;
+    }
   </style>
 </head>
 <body>
@@ -163,6 +251,24 @@
 
     <div id="scheduleForm" class="hidden">
       <label for="dates">訪問予定日</label>
+      <div class="calendar">
+        <div class="calendar-header">
+          <button type="button" onclick="changeScheduleMonth(-1)">‹</button>
+          <div id="calendarTitle" class="calendar-title"></div>
+          <button type="button" onclick="changeScheduleMonth(1)">›</button>
+        </div>
+        <div class="calendar-weekdays">
+          <div>日</div>
+          <div>月</div>
+          <div>火</div>
+          <div>水</div>
+          <div>木</div>
+          <div>金</div>
+          <div>土</div>
+        </div>
+        <div id="calendarDays" class="calendar-days"></div>
+      </div>
+      <div id="selectedDates" class="selected-dates"></div>
       <textarea id="dates" placeholder="例：7/4、7/11、7/18、7/26"></textarea>
 
       <button id="scheduleSubmit" class="submit" type="button" onclick="recordSchedule()">予定を登録</button>
@@ -183,6 +289,8 @@
     let scheduleSubmitting = false;
     let lastVisitKey = "";
     let lastVisitSentAt = 0;
+    let scheduleCalendarMonth = new Date();
+    const selectedScheduleDates = new Set();
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -241,6 +349,74 @@
       visitType = type;
       document.getElementById("startButton").classList.toggle("active", type === "開始");
       document.getElementById("endButton").classList.toggle("active", type === "終了");
+    }
+
+    function toDateKey(date) {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
+      return yyyy + "-" + mm + "-" + dd;
+    }
+
+    function toDisplayDate(dateKey) {
+      const parts = dateKey.split("-");
+      return Number(parts[1]) + "/" + Number(parts[2]);
+    }
+
+    function syncSelectedScheduleDates() {
+      const dates = Array.from(selectedScheduleDates).sort();
+      document.getElementById("dates").value = dates.join("、");
+      document.getElementById("selectedDates").innerHTML = dates
+        .map(dateKey => '<span class="selected-date">' + toDisplayDate(dateKey) + '</span>')
+        .join("");
+    }
+
+    function renderScheduleCalendar() {
+      const year = scheduleCalendarMonth.getFullYear();
+      const month = scheduleCalendarMonth.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const lastDate = new Date(year, month + 1, 0).getDate();
+      const startWeekday = firstDay.getDay();
+      const days = [];
+
+      document.getElementById("calendarTitle").innerText = year + "年" + (month + 1) + "月";
+
+      for (let i = 0; i < startWeekday; i++) {
+        days.push('<button class="calendar-day empty" type="button" disabled></button>');
+      }
+
+      for (let day = 1; day <= lastDate; day++) {
+        const date = new Date(year, month, day);
+        const dateKey = toDateKey(date);
+        const selected = selectedScheduleDates.has(dateKey) ? " selected" : "";
+        days.push(
+          "<button class=\"calendar-day" + selected + "\" type=\"button\" onclick=\"toggleScheduleDate('" + dateKey + "')\">" +
+          day +
+          "</button>"
+        );
+      }
+
+      document.getElementById("calendarDays").innerHTML = days.join("");
+      syncSelectedScheduleDates();
+    }
+
+    function changeScheduleMonth(delta) {
+      scheduleCalendarMonth = new Date(
+        scheduleCalendarMonth.getFullYear(),
+        scheduleCalendarMonth.getMonth() + delta,
+        1
+      );
+      renderScheduleCalendar();
+    }
+
+    function toggleScheduleDate(dateKey) {
+      if (selectedScheduleDates.has(dateKey)) {
+        selectedScheduleDates.delete(dateKey);
+      } else {
+        selectedScheduleDates.add(dateKey);
+      }
+
+      renderScheduleCalendar();
     }
 
     function loadUsers() {
@@ -344,6 +520,7 @@
     }
 
     setToday();
+    renderScheduleCalendar();
     setDisabled(true);
 
     liff.init({ liffId: LIFF_ID })
