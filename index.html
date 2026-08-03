@@ -57,11 +57,116 @@
       padding: 11px;
       border: 1px solid #c8d0d9;
       background: #fff;
+      color: #1f2933;
+    }
+
+    option {
+      color: #1f2933;
+      background: #fff;
     }
 
     textarea {
       min-height: 96px;
       resize: vertical;
+    }
+
+    .selected-dates {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 34px;
+      margin-top: 10px;
+    }
+
+    .date-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: auto;
+      padding: 8px 10px;
+      border: 1px solid #c8d0d9;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f2933;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .date-chip button {
+      width: auto;
+      padding: 0 4px;
+      border: 0;
+      background: transparent;
+      color: #b42318;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .calendar {
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .calendar-nav {
+      display: grid;
+      grid-template-columns: 44px 1fr 44px;
+      align-items: center;
+      border-bottom: 1px solid #dde3ea;
+    }
+
+    .calendar-nav button {
+      height: 44px;
+      border: 0;
+      background: #fff;
+      color: #06a949;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    .calendar-title {
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .weekdays,
+    .calendar-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+    }
+
+    .weekdays div {
+      padding: 8px 0;
+      background: #f6f7f9;
+      color: #52606d;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .calendar-day {
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      border-top: 1px solid #edf1f5;
+      border-right: 1px solid #edf1f5;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 700;
+    }
+
+    .calendar-day:nth-child(7n) {
+      border-right: 0;
+    }
+
+    .calendar-day.empty {
+      background: #f8fafc;
+    }
+
+    .calendar-day.selected {
+      background: #06c755;
+      color: #fff;
     }
 
     .tabs {
@@ -129,94 +234,6 @@
     .hidden {
       display: none;
     }
-
-    .calendar {
-      margin-top: 8px;
-      border: 1px solid #dde3ea;
-      border-radius: 8px;
-      overflow: hidden;
-      background: #fff;
-    }
-
-    .calendar-header {
-      display: grid;
-      grid-template-columns: 44px 1fr 44px;
-      align-items: center;
-      gap: 8px;
-      padding: 10px;
-      background: #f6f7f9;
-    }
-
-    .calendar-header button {
-      height: 36px;
-      padding: 0;
-      border: 1px solid #c8d0d9;
-      background: #fff;
-      color: #1f2933;
-      font-weight: 800;
-    }
-
-    .calendar-title {
-      text-align: center;
-      font-weight: 800;
-    }
-
-    .calendar-weekdays,
-    .calendar-days {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-    }
-
-    .calendar-weekdays div {
-      padding: 8px 0;
-      background: #eef2f6;
-      color: #52606d;
-      text-align: center;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .calendar-day {
-      min-height: 42px;
-      padding: 0;
-      border: 0;
-      border-right: 1px solid #eef2f6;
-      border-bottom: 1px solid #eef2f6;
-      background: #fff;
-      color: #1f2933;
-      font-weight: 700;
-    }
-
-    .calendar-day:nth-child(7n) {
-      border-right: 0;
-    }
-
-    .calendar-day.empty {
-      background: #f8fafc;
-      color: transparent;
-    }
-
-    .calendar-day.selected {
-      background: #06c755;
-      color: #fff;
-    }
-
-    .selected-dates {
-      min-height: 24px;
-      margin-top: 8px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-
-    .selected-date {
-      padding: 5px 8px;
-      border-radius: 999px;
-      background: #e8f8ee;
-      color: #047a33;
-      font-size: 13px;
-      font-weight: 800;
-    }
   </style>
 </head>
 <body>
@@ -236,8 +253,8 @@
     <div id="visitForm">
       <label>種別</label>
       <div class="type-buttons">
-        <button id="startButton" type="button" onclick="setVisitType('開始')">開始</button>
-        <button id="endButton" class="active" type="button" onclick="setVisitType('終了')">終了</button>
+        <button id="startButton" class="active" type="button" onclick="setVisitType('開始')">開始</button>
+        <button id="endButton" type="button" onclick="setVisitType('終了')">終了</button>
       </div>
 
       <label for="visitDate">実施日</label>
@@ -250,14 +267,14 @@
     </div>
 
     <div id="scheduleForm" class="hidden">
-      <label for="dates">訪問予定日</label>
+      <label>訪問予定日</label>
       <div class="calendar">
-        <div class="calendar-header">
-          <button type="button" onclick="changeScheduleMonth(-1)">‹</button>
+        <div class="calendar-nav">
+          <button type="button" onclick="moveScheduleMonth(-1)">‹</button>
           <div id="calendarTitle" class="calendar-title"></div>
-          <button type="button" onclick="changeScheduleMonth(1)">›</button>
+          <button type="button" onclick="moveScheduleMonth(1)">›</button>
         </div>
-        <div class="calendar-weekdays">
+        <div class="weekdays">
           <div>日</div>
           <div>月</div>
           <div>火</div>
@@ -269,7 +286,6 @@
         <div id="calendarDays" class="calendar-days"></div>
       </div>
       <div id="selectedDates" class="selected-dates"></div>
-      <textarea id="dates" placeholder="例：7/4、7/11、7/18、7/26"></textarea>
 
       <button id="scheduleSubmit" class="submit" type="button" onclick="recordSchedule()">予定を登録</button>
     </div>
@@ -283,27 +299,34 @@
 
     let lineUserId = "";
     let staffName = "";
-    let visitType = "終了";
+    let visitType = "開始";
     let jsonpCounter = 0;
+    let scheduleDates = [];
+    let scheduleCalendarMonth = new Date();
     let visitSubmitting = false;
     let scheduleSubmitting = false;
     let lastVisitKey = "";
     let lastVisitSentAt = 0;
-    let scheduleCalendarMonth = new Date();
-    const selectedScheduleDates = new Set();
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
         const callbackName = "jsonp_cb_" + jsonpCounter++;
         const script = document.createElement("script");
+        const timer = setTimeout(() => {
+          delete window[callbackName];
+          script.remove();
+          reject(new Error("通信がタイムアウトしました。LIFF操作ログを確認してください。"));
+        }, 20000);
 
         window[callbackName] = data => {
+          clearTimeout(timer);
           resolve(data);
           delete window[callbackName];
           script.remove();
         };
 
         script.onerror = () => {
+          clearTimeout(timer);
           delete window[callbackName];
           script.remove();
           reject(new Error("通信に失敗しました"));
@@ -333,6 +356,7 @@
 
       document.getElementById("visitDate").value = yyyy + "-" + mm + "-" + dd;
       document.getElementById("visitTime").value = hh + ":" + mi;
+      scheduleCalendarMonth = new Date(yyyy, now.getMonth(), 1);
     }
 
     function switchMode(mode) {
@@ -342,6 +366,7 @@
       document.getElementById("scheduleTab").classList.toggle("active", !isVisit);
       document.getElementById("visitForm").classList.toggle("hidden", !isVisit);
       document.getElementById("scheduleForm").classList.toggle("hidden", isVisit);
+      if (!isVisit) renderScheduleCalendar();
       setMessage("");
     }
 
@@ -351,72 +376,97 @@
       document.getElementById("endButton").classList.toggle("active", type === "終了");
     }
 
-    function toDateKey(date) {
+    function formatScheduleDate(value) {
+      const parts = String(value || "").split("-");
+      if (parts.length !== 3) return "";
+
+      const month = Number(parts[1]);
+      const day = Number(parts[2]);
+      if (!month || !day) return "";
+
+      return month + "/" + day;
+    }
+
+    function toDateValue(date) {
       const yyyy = date.getFullYear();
       const mm = String(date.getMonth() + 1).padStart(2, "0");
       const dd = String(date.getDate()).padStart(2, "0");
       return yyyy + "-" + mm + "-" + dd;
     }
 
-    function toDisplayDate(dateKey) {
-      const parts = dateKey.split("-");
-      return Number(parts[1]) + "/" + Number(parts[2]);
-    }
-
-    function syncSelectedScheduleDates() {
-      const dates = Array.from(selectedScheduleDates).sort();
-      document.getElementById("dates").value = dates.join("、");
-      document.getElementById("selectedDates").innerHTML = dates
-        .map(dateKey => '<span class="selected-date">' + toDisplayDate(dateKey) + '</span>')
-        .join("");
-    }
-
     function renderScheduleCalendar() {
       const year = scheduleCalendarMonth.getFullYear();
       const month = scheduleCalendarMonth.getMonth();
-      const firstDay = new Date(year, month, 1);
+      const firstDay = new Date(year, month, 1).getDay();
       const lastDate = new Date(year, month + 1, 0).getDate();
-      const startWeekday = firstDay.getDay();
-      const days = [];
+      const area = document.getElementById("calendarDays");
 
       document.getElementById("calendarTitle").innerText = year + "年" + (month + 1) + "月";
+      area.innerHTML = "";
 
-      for (let i = 0; i < startWeekday; i++) {
-        days.push('<button class="calendar-day empty" type="button" disabled></button>');
+      for (let i = 0; i < firstDay; i++) {
+        const empty = document.createElement("div");
+        empty.className = "calendar-day empty";
+        area.appendChild(empty);
       }
 
       for (let day = 1; day <= lastDate; day++) {
-        const date = new Date(year, month, day);
-        const dateKey = toDateKey(date);
-        const selected = selectedScheduleDates.has(dateKey) ? " selected" : "";
-        days.push(
-          "<button class=\"calendar-day" + selected + "\" type=\"button\" onclick=\"toggleScheduleDate('" + dateKey + "')\">" +
-          day +
-          "</button>"
-        );
+        const value = toDateValue(new Date(year, month, day));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "calendar-day";
+        button.textContent = day;
+        button.classList.toggle("selected", scheduleDates.includes(value));
+        button.onclick = () => toggleScheduleDate(value);
+        area.appendChild(button);
       }
-
-      document.getElementById("calendarDays").innerHTML = days.join("");
-      syncSelectedScheduleDates();
     }
 
-    function changeScheduleMonth(delta) {
+    function moveScheduleMonth(amount) {
       scheduleCalendarMonth = new Date(
         scheduleCalendarMonth.getFullYear(),
-        scheduleCalendarMonth.getMonth() + delta,
+        scheduleCalendarMonth.getMonth() + amount,
         1
       );
       renderScheduleCalendar();
     }
 
-    function toggleScheduleDate(dateKey) {
-      if (selectedScheduleDates.has(dateKey)) {
-        selectedScheduleDates.delete(dateKey);
+    function renderScheduleDates() {
+      const area = document.getElementById("selectedDates");
+      area.innerHTML = "";
+
+      scheduleDates.forEach(value => {
+        const chip = document.createElement("span");
+        chip.className = "date-chip";
+        chip.textContent = formatScheduleDate(value);
+
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.textContent = "×";
+        removeButton.onclick = () => removeScheduleDate(value);
+
+        chip.appendChild(removeButton);
+        area.appendChild(chip);
+      });
+    }
+
+    function toggleScheduleDate(value) {
+      if (scheduleDates.includes(value)) {
+        scheduleDates = scheduleDates.filter(date => date !== value);
       } else {
-        selectedScheduleDates.add(dateKey);
+        scheduleDates.push(value);
+        scheduleDates.sort();
       }
 
       renderScheduleCalendar();
+      renderScheduleDates();
+      setMessage("");
+    }
+
+    function removeScheduleDate(value) {
+      scheduleDates = scheduleDates.filter(date => date !== value);
+      renderScheduleCalendar();
+      renderScheduleDates();
     }
 
     function loadUsers() {
@@ -430,18 +480,23 @@
         select.innerHTML = "";
 
         if (!data.success) {
-          document.getElementById("staff").innerText = data.message;
+          document.getElementById("staff").innerText =
+            data.message + "\nLIFF用LINEユーザーID：" + lineUserId;
           setDisabled(true);
           return;
         }
 
         staffName = data.staffName;
-        document.getElementById("staff").innerText = "スタッフ：" + staffName;
+        document.getElementById("staff").innerText =
+          "スタッフ：" + staffName + "\nLIFF用LINEユーザーID：" + lineUserId;
 
         data.users.forEach(user => {
+          const userName = typeof user === "string" ? user : user.name;
+          if (!userName) return;
+
           const option = document.createElement("option");
-          option.value = user.name;
-          option.textContent = user.name;
+          option.value = userName;
+          option.textContent = userName;
           select.appendChild(option);
         });
 
@@ -450,6 +505,32 @@
           setDisabled(true);
         }
       });
+    }
+
+    function logLogin(displayName) {
+      const params = new URLSearchParams({
+        action: "logLogin",
+        lineUserId: lineUserId,
+        displayName: displayName || ""
+      });
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          if (data && data.registered) {
+            document.getElementById("staff").innerText =
+              "スタッフ：" + data.staffName + "\nLIFF用LINEユーザーID：" + lineUserId;
+          } else {
+            document.getElementById("staff").innerText =
+              "ログイン記録済み。スタッフマスタへ下のIDを登録してください。\nLIFF用LINEユーザーID：" + lineUserId;
+          }
+          return data;
+        })
+        .catch(error => {
+          document.getElementById("staff").innerText =
+            "ログイン記録に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          setMessage("ログイン記録エラー：" + error.message);
+          return null;
+        });
     }
 
     function recordVisit() {
@@ -485,7 +566,9 @@
       setMessage("登録中...");
 
       jsonp(GAS_URL + "?" + params.toString())
-        .then(data => setMessage(data.message))
+        .then(data => {
+          setMessage(data.message);
+        })
         .catch(error => setMessage("登録に失敗しました：" + error.message))
         .finally(() => {
           visitSubmitting = false;
@@ -499,11 +582,16 @@
         return;
       }
 
+      if (scheduleDates.length === 0) {
+        setMessage("訪問予定日を1つ以上追加してください。");
+        return;
+      }
+
       const params = new URLSearchParams({
         action: "recordSchedule",
         lineUserId: lineUserId,
         userName: document.getElementById("userName").value,
-        dates: document.getElementById("dates").value
+        dates: scheduleDates.join(",")
       });
 
       scheduleSubmitting = true;
@@ -511,7 +599,14 @@
       setMessage("登録中...");
 
       jsonp(GAS_URL + "?" + params.toString())
-        .then(data => setMessage(data.message))
+        .then(data => {
+          if (data.success) {
+            scheduleDates = [];
+            renderScheduleCalendar();
+            renderScheduleDates();
+          }
+          setMessage(data.message);
+        })
         .catch(error => setMessage("登録に失敗しました：" + error.message))
         .finally(() => {
           scheduleSubmitting = false;
@@ -520,7 +615,6 @@
     }
 
     setToday();
-    renderScheduleCalendar();
     setDisabled(true);
 
     liff.init({ liffId: LIFF_ID })
@@ -535,8 +629,9 @@
       .then(profile => {
         if (!profile) return;
         lineUserId = profile.userId;
-        document.getElementById("staff").innerText = "LINEユーザーID確認中：" + lineUserId;
-        return loadUsers();
+        document.getElementById("staff").innerText =
+          "LINEユーザーID記録中...\nLIFF用LINEユーザーID：" + lineUserId;
+        return logLogin(profile.displayName).then(() => loadUsers());
       })
       .then(() => setDisabled(false))
       .catch(error => {
