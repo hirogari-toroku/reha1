@@ -475,7 +475,11 @@
         lineUserId: lineUserId
       });
 
-      return jsonp(GAS_URL + "?" + params.toString()).then(data => {
+      return applyUserListData(jsonp(GAS_URL + "?" + params.toString()));
+    }
+
+    function applyUserListData(request) {
+      return request.then(data => {
         const select = document.getElementById("userName");
         select.innerHTML = "";
 
@@ -505,6 +509,22 @@
           setDisabled(true);
         }
       });
+    }
+
+    function initApp(displayName) {
+      const params = new URLSearchParams({
+        action: "init",
+        lineUserId: lineUserId,
+        displayName: displayName || ""
+      });
+
+      return applyUserListData(jsonp(GAS_URL + "?" + params.toString()))
+        .catch(error => {
+          document.getElementById("staff").innerText =
+            "ログイン記録に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          setMessage("ログイン記録エラー：" + error.message);
+          throw error;
+        });
     }
 
     function logLogin(displayName) {
@@ -630,8 +650,8 @@
         if (!profile) return;
         lineUserId = profile.userId;
         document.getElementById("staff").innerText =
-          "LINEユーザーID記録中...\nLIFF用LINEユーザーID：" + lineUserId;
-        return logLogin(profile.displayName).then(() => loadUsers());
+          "スタッフ情報を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
+        return initApp(profile.displayName);
       })
       .then(() => setDisabled(false))
       .catch(error => {
