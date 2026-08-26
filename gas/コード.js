@@ -284,7 +284,8 @@ function doGet(e) {
       e.parameter.userName,
       e.parameter.visitType,
       e.parameter.visitDate,
-      e.parameter.visitTime
+      e.parameter.visitTime,
+      e.parameter.scheduleId
     ));
   }
 
@@ -751,9 +752,10 @@ function getLiffUserListFast_(ss, staffName) {
   return users;
 }
 
-function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitTime) {
+function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitTime, scheduleId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const resultSheet = ss.getSheetByName(VISIT_RESULT_SHEET_NAME);
+  const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   const staffName = getStaffName_(ss, lineUserId);
   const resolvedUserName = resolveUserName_(ss, staffName, userName);
   const type = visitType === "開始" ? "開始" : "終了";
@@ -761,6 +763,7 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
   const targetDate = normalizeLiffDateText_(visitDate, now);
   const targetTime = normalizeLiffTimeText_(visitTime, now);
   const originalText = "LIFF実績登録：" + resolvedUserName + " " + type;
+  let linkedScheduleRow = null;
 
   if (!resultSheet) {
     const message = "訪問実績シートがありません。";
@@ -873,6 +876,37 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     };
   }
 
+  if (scheduleId) {
+    if (!scheduleSheet) {
+      const message = "訪問予定シートがありません。";
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", message);
+      return {
+        success: false,
+        message: message
+      };
+    }
+
+    ensureScheduleStatusColumns_(scheduleSheet);
+    const targetSchedule = getEditableScheduleRow_(scheduleSheet, staffName, scheduleId);
+    if (!targetSchedule.success) {
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", targetSchedule.message);
+      return targetSchedule;
+    }
+
+    linkedScheduleRow = targetSchedule.row;
+    if (
+      normalizeName_(linkedScheduleRow.userName) !== normalizeName_(resolvedUserName) ||
+      linkedScheduleRow.visitDateValue !== targetDate
+    ) {
+      const message = "予定と実績の利用者または日付が一致しません。画面を更新してください。";
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", message);
+      return {
+        success: false,
+        message: message
+      };
+    }
+  }
+
   if (isRecentDuplicateVisit_(resultSheet, staffName, resolvedUserName, type, targetDate, targetTime, now)) {
     const message = "同じ内容の実績がすでに登録されています。重複登録を防止しました。";
 
@@ -915,6 +949,10 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     lineUserId,
     originalText
   );
+
+  if (linkedScheduleRow) {
+    updateLinkedScheduleVisitStatus_(scheduleSheet, linkedScheduleRow.rowNumber, type, targetTime, now);
+  }
 
   const message = "利用者：" + resolvedUserName + " 様の" + type + "実績を登録しました。";
 
@@ -1381,11 +1419,12 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
       status: status || "予定",
       registeredAt: formatComparisonDateTime_(row[0]),
       calendarStatus: String(row[6] || ""),
-      updatedAt: formatComparisonDateTime_(row[9])
+      updatedAt: formatComparisonDateTime_(row[9]),
+      lastVisitText: String(row[10] || "")
     });
   });
 
-  schedules.sort((a, b) => String(a.visitDateValue).localeCompare(String(b.visitDateValue)));
+  schedules.sort((a, b) => String(b.visitDateValue).localeCompare(String(a.visitDateValue)));
   return schedules;
 }
 
@@ -1428,6 +1467,18 @@ function ensureScheduleStatusColumns_(sheet) {
       cell.setValue(label.name);
     }
   });
+}
+
+function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitTime, now) {
+  const type = visitType === "終了" ? "終了" : "開始";
+  const nextStatus = type === "終了" ? "完了" : "訪問中";
+  const note = "LIFF" + type + "実績：" + visitTime;
+
+  sheet.getRange(rowNumber, 9, 1, 3).setValues([[
+    nextStatus,
+    now,
+    note
+  ]]);
 }
 
 function getEditableScheduleRow_(sheet, staffName, scheduleId) {
@@ -1474,6 +1525,7 @@ function getEditableScheduleRow_(sheet, staffName, scheduleId) {
       staffName: rowStaffName,
       userName: userName,
       visitDate: formatScheduleDateForLiff_(visitDate, row[0]),
+      visitDateValue: formatScheduleDateValueForLiff_(visitDate, row[0]),
       eventId: String(row[7] || "")
     }
   };
