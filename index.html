@@ -344,6 +344,66 @@
       white-space: pre-wrap;
     }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(31, 41, 51, 0.45);
+      z-index: 10;
+    }
+
+    .modal-backdrop.hidden {
+      display: none;
+    }
+
+    .time-modal {
+      width: 100%;
+      max-width: 420px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #dde3ea;
+      padding: 16px;
+      box-shadow: 0 18px 40px rgba(31, 41, 51, 0.22);
+    }
+
+    .time-modal-title {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .time-modal-detail {
+      color: #52606d;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .time-modal-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .time-modal-actions button {
+      padding: 12px;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 800;
+    }
+
+    .time-modal-actions .primary {
+      border: 0;
+      background: #06c755;
+      color: #fff;
+    }
+
     .hidden {
       display: none;
     }
@@ -413,6 +473,21 @@
     <div id="message" class="message"></div>
   </div>
 
+  <div id="timeModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="timeModalTitle">
+    <div class="time-modal">
+      <div id="timeModalTitle" class="time-modal-title">時刻を選択</div>
+      <div id="timeModalDetail" class="time-modal-detail"></div>
+
+      <label for="scheduleVisitTime">時刻</label>
+      <input type="time" id="scheduleVisitTime">
+
+      <div class="time-modal-actions">
+        <button type="button" onclick="closeScheduleVisitTimeModal()">戻る</button>
+        <button class="primary" type="button" onclick="submitScheduleVisitTime()">登録</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const GAS_URL = "https://script.google.com/macros/s/AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ/exec";
     const LIFF_ID = "2010856600-yxOaV2Np";
@@ -429,6 +504,7 @@
     let scheduleItems = [];
     let lastVisitKey = "";
     let lastVisitSentAt = 0;
+    let pendingScheduleVisit = null;
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -752,34 +828,6 @@
       return String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
     }
 
-    function isTodayValue(value) {
-      const now = new Date();
-      return value === [
-        now.getFullYear(),
-        String(now.getMonth() + 1).padStart(2, "0"),
-        String(now.getDate()).padStart(2, "0")
-      ].join("-");
-    }
-
-    function askVisitTimeForSchedule(item, type) {
-      const defaultTime = currentTimeValue();
-      if (isTodayValue(item.visitDateValue)) return defaultTime;
-
-      const entered = prompt(
-        item.visitDate + " の" + type + "時刻を入力してください。\n例：18:04",
-        defaultTime
-      );
-      if (entered === null) return "";
-
-      const value = String(entered || "").trim();
-      if (!/^\d{1,2}:\d{2}$/.test(value)) {
-        setMessage("時刻は 18:04 のように入力してください。");
-        return "";
-      }
-
-      return value;
-    }
-
     function recordVisitForSchedule(item, type) {
       if (scheduleActionSubmitting || visitSubmitting) return;
       if (!item || !item.userName || !item.visitDateValue) {
@@ -787,13 +835,39 @@
         return;
       }
 
-      const visitTime = askVisitTimeForSchedule(item, type);
-      if (!visitTime) return;
+      pendingScheduleVisit = {
+        item: item,
+        type: type === "終了" ? "終了" : "開始"
+      };
 
-      visitType = type === "終了" ? "終了" : "開始";
+      document.getElementById("timeModalTitle").innerText = pendingScheduleVisit.type + "時刻を選択";
+      document.getElementById("timeModalDetail").innerText =
+        item.visitDate + "　" + item.userName + "\n登録する時刻を選んでください。";
+      document.getElementById("scheduleVisitTime").value = currentTimeValue();
+      document.getElementById("timeModal").classList.remove("hidden");
+      setMessage("");
+    }
+
+    function closeScheduleVisitTimeModal() {
+      pendingScheduleVisit = null;
+      document.getElementById("timeModal").classList.add("hidden");
+    }
+
+    function submitScheduleVisitTime() {
+      if (!pendingScheduleVisit) return;
+
+      const item = pendingScheduleVisit.item;
+      const visitTime = document.getElementById("scheduleVisitTime").value;
+      if (!/^\d{1,2}:\d{2}$/.test(visitTime)) {
+        setMessage("時刻を選択してください。");
+        return;
+      }
+
+      visitType = pendingScheduleVisit.type;
       document.getElementById("userName").value = item.userName;
       document.getElementById("visitDate").value = item.visitDateValue;
       document.getElementById("visitTime").value = visitTime;
+      closeScheduleVisitTimeModal();
 
       recordVisit(item.id);
     }
