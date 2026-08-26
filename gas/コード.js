@@ -896,7 +896,7 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     linkedScheduleRow = targetSchedule.row;
     if (
       normalizeName_(linkedScheduleRow.userName) !== normalizeName_(resolvedUserName) ||
-      linkedScheduleRow.visitDateValue !== targetDate
+      normalizeVisitDateKey_(linkedScheduleRow.visitDate) !== normalizeVisitDateKey_(targetDate)
     ) {
       const message = "予定と実績の利用者または日付が一致しません。画面を更新してください。";
       saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", message);
@@ -951,7 +951,7 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
   );
 
   if (linkedScheduleRow) {
-    updateLinkedScheduleVisitStatus_(scheduleSheet, linkedScheduleRow.rowNumber, type, targetTime, now);
+    updateLinkedScheduleVisitStatus_(scheduleSheet, linkedScheduleRow.rowNumber, type, targetDate, targetTime, now);
   }
 
   const message = "利用者：" + resolvedUserName + " 様の" + type + "実績を登録しました。";
@@ -1469,10 +1469,10 @@ function ensureScheduleStatusColumns_(sheet) {
   });
 }
 
-function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitTime, now) {
+function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitDate, visitTime, now) {
   const type = visitType === "終了" ? "終了" : "開始";
   const nextStatus = type === "終了" ? "完了" : "訪問中";
-  const note = "LIFF" + type + "実績：" + visitTime;
+  const note = type + "登録：" + visitDate + " " + visitTime;
 
   sheet.getRange(rowNumber, 9, 1, 3).setValues([[
     nextStatus,
