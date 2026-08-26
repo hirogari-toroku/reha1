@@ -410,7 +410,7 @@
   </style>
 </head>
 <body>
-  <h1>訪問予定</h1>
+  <h1 id="pageTitle">訪問予定</h1>
 
   <div class="panel">
     <div id="staff" class="staff">読み込み中...</div>
@@ -491,8 +491,10 @@
   <script>
     const GAS_URL = "https://script.google.com/macros/s/AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ/exec";
     const LIFF_ID = "2010856600-yxOaV2Np";
+    const appMode = new URLSearchParams(window.location.search).get("mode") === "user" ? "user" : "staff";
 
     let lineUserId = "";
+    let lineDisplayName = "";
     let staffName = "";
     let visitType = "開始";
     let jsonpCounter = 0;
@@ -537,6 +539,18 @@
 
     function setMessage(text) {
       document.getElementById("message").innerText = text || "";
+    }
+
+    function setupUserModeView() {
+      document.getElementById("pageTitle").innerText = "予約確認";
+      document.getElementById("staff").innerText = "利用者情報を確認中...";
+      document.querySelector(".tabs").classList.add("hidden");
+      document.getElementById("userPicker").classList.add("hidden");
+      document.getElementById("visitForm").classList.add("hidden");
+      document.getElementById("scheduleForm").classList.add("hidden");
+      document.getElementById("manageForm").classList.remove("hidden");
+      document.getElementById("scheduleReload").innerText = "予約を更新";
+      document.getElementById("scheduleReload").onclick = () => loadUserSchedules();
     }
 
     function setDisabled(disabled) {
@@ -710,6 +724,37 @@
         });
     }
 
+    function loadUserSchedules(silent) {
+      if (!lineUserId) return Promise.resolve();
+
+      const params = new URLSearchParams({
+        action: "getUserSchedules",
+        lineUserId: lineUserId,
+        displayName: lineDisplayName || ""
+      });
+
+      document.getElementById("scheduleList").innerHTML = "";
+      if (!silent) setMessage("予約を読み込み中...");
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          scheduleItems = data.schedules || [];
+          if (data.userName) {
+            document.getElementById("staff").innerText = "利用者：" + data.userName + " 様";
+          } else {
+            document.getElementById("staff").innerText =
+              "LINE情報を保存しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          }
+          renderUserScheduleList();
+          if (!silent) setMessage(data.message || "");
+        })
+        .catch(error => {
+          scheduleItems = [];
+          renderUserScheduleList();
+          setMessage("予約の取得に失敗しました：" + error.message);
+        });
+    }
+
     function renderScheduleList() {
       const area = document.getElementById("scheduleList");
       const users = getCurrentUserOptions();
@@ -818,6 +863,50 @@
         edit.appendChild(input);
         edit.appendChild(saveButton);
         card.appendChild(edit);
+
+        area.appendChild(card);
+      });
+    }
+
+    function renderUserScheduleList() {
+      const area = document.getElementById("scheduleList");
+      area.innerHTML = "";
+
+      if (scheduleItems.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "schedule-card";
+        empty.textContent = "表示できる予約はありません。";
+        area.appendChild(empty);
+        return;
+      }
+
+      scheduleItems.forEach(item => {
+        const displayStatus = !item.status || item.status === "予定" ? "予約あり" : item.status;
+        const card = document.createElement("div");
+        card.className = "schedule-card";
+
+        const title = document.createElement("div");
+        title.className = "schedule-card-title";
+
+        const date = document.createElement("span");
+        date.textContent = item.visitDate;
+
+        const status = document.createElement("span");
+        status.className = "status-pill";
+        status.textContent = displayStatus;
+        if (displayStatus === "完了") status.classList.add("done");
+        if (displayStatus === "訪問中") status.classList.add("active");
+
+        title.appendChild(date);
+        title.appendChild(status);
+        card.appendChild(title);
+
+        if (item.staffName) {
+          const meta = document.createElement("div");
+          meta.className = "schedule-card-meta";
+          meta.textContent = "担当：" + item.staffName;
+          card.appendChild(meta);
+        }
 
         area.appendChild(card);
       });
@@ -1121,6 +1210,7 @@
 
     setToday();
     setDisabled(true);
+    if (appMode === "user") setupUserModeView();
 
     liff.init({ liffId: LIFF_ID })
       .then(() => {
@@ -1134,11 +1224,14 @@
       .then(profile => {
         if (!profile) return;
         lineUserId = profile.userId;
+        lineDisplayName = profile.displayName || "";
         document.getElementById("staff").innerText =
-          "スタッフ情報を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
+          (appMode === "user" ? "利用者情報" : "スタッフ情報") +
+          "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
+        if (appMode === "user") return loadUserSchedules(true);
         return initApp(profile.displayName);
       })
-      .then(() => loadSchedules(true))
+      .then(() => appMode === "user" ? null : loadSchedules(true))
       .then(() => setDisabled(false))
       .catch(error => {
         setDisabled(true);

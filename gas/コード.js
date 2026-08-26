@@ -278,6 +278,20 @@ function doGet(e) {
     ));
   }
 
+  if (action === "logUserLiffLogin") {
+    return liffResponse_(e, logUserLiffLogin_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "getUserSchedules") {
+    return liffResponse_(e, getUserSchedulesForLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "recordVisit") {
     return liffResponse_(e, recordVisitFromLiff_(
       e.parameter.lineUserId,
@@ -427,6 +441,47 @@ function initLiffApp_(lineUserId, displayName) {
     lineUserId: lineUserId || "",
     displayName: displayName || "",
     message: ""
+  };
+}
+
+function logUserLiffLogin_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const match = findUserDirectoryMatchByLineOrName_(ss, lineUserId, displayName);
+  const now = new Date();
+
+  saveLineUserDirectory_(ss, {
+    source: "利用者LIFF",
+    liffLineUserId: lineUserId,
+    displayName: displayName,
+    detectedUserName: match ? match.name : "",
+    checkedAt: now
+  });
+
+  saveLiffOperationLog_(
+    ss,
+    "logUserLiffLogin",
+    lineUserId,
+    "",
+    match ? match.name : "",
+    "",
+    "",
+    "",
+    match ? "候補あり" : "未紐づけ",
+    match
+      ? "利用者LIFFログインを確認しました。利用者候補：" + match.name
+      : "利用者LIFFログインを確認しました。LINEユーザー一覧から利用者マスタへ紐づけしてください。",
+    displayName
+  );
+
+  return {
+    success: true,
+    linked: !!match,
+    userName: match ? match.name : "",
+    lineUserId: lineUserId || "",
+    displayName: displayName || "",
+    message: match
+      ? "利用者情報を確認しました。"
+      : "LINE情報を保存しました。管理者が利用者マスタへ紐づけ後、予約を確認できます。"
   };
 }
 
@@ -1232,6 +1287,46 @@ function getSchedulesForLiff_(lineUserId) {
   };
 }
 
+function getUserSchedulesForLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  const match = findUserDirectoryMatchByLineOrName_(ss, lineUserId, displayName);
+
+  logUserLiffLogin_(lineUserId, displayName);
+
+  if (!scheduleSheet) {
+    return {
+      success: false,
+      message: "訪問予定シートがありません。",
+      schedules: []
+    };
+  }
+
+  if (!match) {
+    return {
+      success: false,
+      linked: false,
+      message: "利用者情報がまだ紐づいていません。管理者が確認後、予約を表示できます。",
+      lineUserId: lineUserId || "",
+      displayName: displayName || "",
+      schedules: []
+    };
+  }
+
+  ensureScheduleStatusColumns_(scheduleSheet);
+  const schedules = collectActiveSchedulesForUser_(scheduleSheet, match.name);
+
+  return {
+    success: true,
+    linked: true,
+    userName: match.name,
+    lineUserId: lineUserId || "",
+    displayName: displayName || "",
+    schedules: schedules,
+    message: schedules.length ? "" : "対象期間内の予約はありません。"
+  };
+}
+
 function cancelScheduleFromLiff_(lineUserId, scheduleId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
@@ -1425,6 +1520,43 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
   });
 
   schedules.sort((a, b) => String(b.visitDateValue).localeCompare(String(a.visitDateValue)));
+  return schedules;
+}
+
+function collectActiveSchedulesForUser_(sheet, userName) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
+  const targetUser = normalizeName_(userName);
+  const dateWindow = getLiffScheduleDateWindow_();
+  const schedules = [];
+
+  values.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const staffName = String(row[1] || "").trim();
+    const rowUserName = String(row[2] || "").trim();
+    const visitDate = row[3];
+    const status = String(row[8] || "予定").trim();
+
+    if (normalizeName_(rowUserName) !== targetUser) return;
+    if (!rowUserName || !visitDate) return;
+    if (isCancelledScheduleStatus_(status)) return;
+
+    const date = parseComparisonDate_(visitDate, row[0]);
+    if (!isDateInLiffScheduleWindow_(date, dateWindow)) return;
+
+    schedules.push({
+      id: String(rowNumber),
+      staffName: staffName,
+      userName: rowUserName,
+      visitDate: formatScheduleDateForLiff_(visitDate, row[0]),
+      visitDateValue: formatScheduleDateValueForLiff_(visitDate, row[0]),
+      status: status || "予定",
+      updatedAt: formatComparisonDateTime_(row[9])
+    });
+  });
+
+  schedules.sort((a, b) => String(a.visitDateValue).localeCompare(String(b.visitDateValue)));
   return schedules;
 }
 
@@ -3895,6 +4027,7 @@ function saveLineUserDirectory_(ss, data) {
   const liffLineUserId = String(data.liffLineUserId || "").trim();
   const displayName = String(data.displayName || "").trim();
   const detectedStaffName = String(data.detectedStaffName || "").trim();
+  const detectedUserName = String(data.detectedUserName || "").trim();
   const source = String(data.source || "").trim();
   const lastMessage = String(data.lastMessage || "").trim();
 
@@ -3902,7 +4035,7 @@ function saveLineUserDirectory_(ss, data) {
 
   const rowNumber = findLineUserDirectoryRow_(sheet, messagingLineUserId, liffLineUserId, displayName);
   const existing = rowNumber ? sheet.getRange(rowNumber, 1, 1, 13).getValues()[0] : [];
-  const match = resolveLineUserDirectoryMatch_(ss, displayName, detectedStaffName);
+  const match = resolveLineUserDirectoryMatch_(ss, displayName, detectedStaffName, detectedUserName);
   const firstSeenAt = existing[0] || now;
   const mergedMessagingLineUserId = messagingLineUserId || existing[2] || "";
   const mergedLiffLineUserId = liffLineUserId || existing[3] || match.liffLineUserId || "";
@@ -3994,9 +4127,11 @@ function findLineUserDirectoryRow_(sheet, messagingLineUserId, liffLineUserId, d
   return 0;
 }
 
-function resolveLineUserDirectoryMatch_(ss, displayName, detectedStaffName) {
+function resolveLineUserDirectoryMatch_(ss, displayName, detectedStaffName, detectedUserName) {
   const staffMatch = findStaffDirectoryMatch_(ss, displayName, detectedStaffName);
-  const userMatch = findUserDirectoryMatch_(ss, displayName);
+  const userMatch = detectedUserName
+    ? { name: detectedUserName, rowNumber: findUserMasterRowByName_(ss, detectedUserName) }
+    : findUserDirectoryMatch_(ss, displayName);
 
   if (staffMatch && userMatch) {
     return {
@@ -4090,6 +4225,80 @@ function findUserDirectoryMatch_(ss, displayName) {
 
   const unique = dedupeDirectoryMatches_(matches);
   return unique.length === 1 ? unique[0] : null;
+}
+
+function findUserMasterRowByName_(ss, userName) {
+  const sheet = ss.getSheetByName("利用者マスタ");
+  const target = normalizeName_(userName);
+  if (!sheet || !target || sheet.getLastRow() < 2) return "";
+
+  const values = sheet.getDataRange().getValues();
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
+
+  for (let i = 1; i < values.length; i++) {
+    if (normalizeName_(values[i][nameCol]) === target) return i + 1;
+  }
+
+  return "";
+}
+
+function findUserDirectoryMatchByLineOrName_(ss, lineUserId, displayName) {
+  const sheet = ss.getSheetByName("利用者マスタ");
+  const targetLineUserId = String(lineUserId || "").trim();
+  const targetDisplayName = normalizeName_(displayName);
+
+  if (sheet && sheet.getLastRow() >= 2) {
+    const values = sheet.getDataRange().getValues();
+    const headerMap = getHeaderColumnMap_(sheet);
+    const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
+    const lineDisplayNameCol = getColumnIndex_(headerMap, ["LINE表示名", "LINE名"], -1);
+    const messagingLineUserIdCol = getColumnIndex_(headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], -1);
+    const liffLineUserIdCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], -1);
+    const lineMatches = [];
+    const nameMatches = [];
+
+    for (let i = 1; i < values.length; i++) {
+      const userName = String(values[i][nameCol] || "").trim();
+      if (!userName) continue;
+
+      const messagingLineUserId = messagingLineUserIdCol >= 0 ? String(values[i][messagingLineUserIdCol] || "").trim() : "";
+      const liffLineUserId = liffLineUserIdCol >= 0 ? String(values[i][liffLineUserIdCol] || "").trim() : "";
+      const lineDisplayName = lineDisplayNameCol >= 0 ? values[i][lineDisplayNameCol] : "";
+
+      if (
+        targetLineUserId &&
+        (messagingLineUserId === targetLineUserId || liffLineUserId === targetLineUserId)
+      ) {
+        lineMatches.push({
+          name: userName,
+          rowNumber: i + 1
+        });
+        continue;
+      }
+
+      if (
+        targetDisplayName &&
+        (
+          normalizeName_(userName) === targetDisplayName ||
+          normalizeName_(lineDisplayName) === targetDisplayName
+        )
+      ) {
+        nameMatches.push({
+          name: userName,
+          rowNumber: i + 1
+        });
+      }
+    }
+
+    const uniqueLineMatches = dedupeDirectoryMatches_(lineMatches);
+    if (uniqueLineMatches.length === 1) return uniqueLineMatches[0];
+
+    const uniqueNameMatches = dedupeDirectoryMatches_(nameMatches);
+    if (uniqueNameMatches.length === 1) return uniqueNameMatches[0];
+  }
+
+  return findUserDirectoryMatch_(ss, displayName);
 }
 
 function collectUserDirectoryMatchesFromUserMaster_(ss, target, matches) {
