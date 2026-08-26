@@ -4128,7 +4128,91 @@ function updateLineUserDirectoryLinks() {
     return;
   }
 
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 13).getValues();
+  const updatedCount = updateLineUserDirectoryLinksWithoutAlert_(ss, sheet);
+  SpreadsheetApp.getUi().alert("LINEユーザー一覧の紐づけ候補を更新しました。件数：" + updatedCount + "件");
+}
+
+function applyLineUserDirectoryToMasters() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const directorySheet = ensureLineUserDirectorySheet_(ss);
+
+  if (directorySheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert("LINEユーザー一覧にデータがありません。");
+    return;
+  }
+
+  updateLineUserDirectoryLinksWithoutAlert_(ss, directorySheet);
+
+  const rows = directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
+  const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  const userSheet = ss.getSheetByName("利用者マスタ");
+  const staffCols = staffSheet ? getStaffMasterColumnMap_(staffSheet) : null;
+  const userCols = userSheet ? ensureUserMasterLineColumns_(userSheet) : null;
+  let staffUpdatedCount = 0;
+  let userUpdatedCount = 0;
+  let skippedCount = 0;
+
+  rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const messagingLineUserId = String(row[2] || "").trim();
+    const liffLineUserId = String(row[3] || "").trim();
+    const displayName = String(row[4] || "").trim();
+    const type = String(row[5] || "").trim();
+    const staffRow = Number(row[7]) || 0;
+    const userRow = Number(row[8]) || 0;
+
+    if (type === "スタッフ" && staffSheet && staffCols && staffRow >= 2) {
+      const result = applyLineUserDirectoryToStaffRow_(
+        staffSheet,
+        staffCols,
+        staffRow,
+        displayName,
+        messagingLineUserId,
+        liffLineUserId
+      );
+      staffUpdatedCount += result.updated ? 1 : 0;
+      skippedCount += result.skipped ? 1 : 0;
+      directorySheet.getRange(rowNumber, 10).setValue(result.status);
+      directorySheet.getRange(rowNumber, 13).setValue(result.note);
+      return;
+    }
+
+    if (type === "利用者" && userSheet && userCols && userRow >= 2) {
+      const result = applyLineUserDirectoryToUserRow_(
+        userSheet,
+        userCols,
+        userRow,
+        displayName,
+        messagingLineUserId,
+        liffLineUserId
+      );
+      userUpdatedCount += result.updated ? 1 : 0;
+      skippedCount += result.skipped ? 1 : 0;
+      directorySheet.getRange(rowNumber, 10).setValue(result.status);
+      directorySheet.getRange(rowNumber, 13).setValue(result.note);
+      return;
+    }
+
+    if (type) {
+      skippedCount++;
+      directorySheet.getRange(rowNumber, 10).setValue("反映対象外");
+      directorySheet.getRange(rowNumber, 13).setValue("候補が複数、またはマスタ行が特定できないため手動確認してください。");
+    }
+  });
+
+  SpreadsheetApp.getUi().alert(
+    "LINEユーザー一覧からマスタへ反映しました。\n" +
+    "スタッフ更新：" + staffUpdatedCount + "件\n" +
+    "利用者更新：" + userUpdatedCount + "件\n" +
+    "確認・スキップ：" + skippedCount + "件"
+  );
+}
+
+function updateLineUserDirectoryLinksWithoutAlert_(ss, sheet) {
+  const targetSheet = sheet || ensureLineUserDirectorySheet_(ss);
+  if (targetSheet.getLastRow() < 2) return 0;
+
+  const values = targetSheet.getRange(2, 1, targetSheet.getLastRow() - 1, 13).getValues();
   const updatedRows = values.map(row => {
     const displayName = row[4];
     const match = resolveLineUserDirectoryMatch_(ss, displayName, "");
@@ -4144,8 +4228,87 @@ function updateLineUserDirectoryLinks() {
     return row;
   });
 
-  sheet.getRange(2, 1, updatedRows.length, 13).setValues(updatedRows);
-  SpreadsheetApp.getUi().alert("LINEユーザー一覧の紐づけ候補を更新しました。件数：" + updatedRows.length + "件");
+  targetSheet.getRange(2, 1, updatedRows.length, 13).setValues(updatedRows);
+  return updatedRows.length;
+}
+
+function applyLineUserDirectoryToStaffRow_(sheet, cols, rowNumber, displayName, messagingLineUserId, liffLineUserId) {
+  const row = sheet.getRange(rowNumber, 1, 1, Math.max(sheet.getLastColumn(), 12)).getValues()[0];
+  const updates = [];
+  const conflicts = [];
+
+  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineDisplayName, displayName, "LINE表示名");
+  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineUserId, messagingLineUserId, "LINEユーザーID");
+  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.liffLineUserId, liffLineUserId, "LIFF用LINEユーザーID");
+  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+
+  return {
+    updated: updates.length > 0,
+    skipped: updates.length === 0 || conflicts.length > 0,
+    status: conflicts.length > 0 ? "スタッフマスタ一部確認" : "スタッフマスタ反映済み",
+    note: conflicts.join(" / ")
+  };
+}
+
+function applyLineUserDirectoryToUserRow_(sheet, cols, rowNumber, displayName, messagingLineUserId, liffLineUserId) {
+  const row = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const updates = [];
+  const conflicts = [];
+
+  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineDisplayName, displayName, "LINE表示名");
+  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineUserId, messagingLineUserId, "LINEユーザーID");
+  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.liffLineUserId, liffLineUserId, "LIFF用LINEユーザーID");
+  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+
+  return {
+    updated: updates.length > 0,
+    skipped: updates.length === 0 || conflicts.length > 0,
+    status: conflicts.length > 0 ? "利用者マスタ一部確認" : "利用者マスタ反映済み",
+    note: conflicts.join(" / ")
+  };
+}
+
+function addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, zeroBasedColumn, value, label) {
+  const nextValue = String(value || "").trim();
+  if (!nextValue || zeroBasedColumn < 0) return;
+
+  const currentValue = String(row[zeroBasedColumn] || "").trim();
+  if (!currentValue) {
+    updates.push({
+      rowNumber: rowNumber,
+      column: zeroBasedColumn + 1,
+      value: nextValue
+    });
+    return;
+  }
+
+  if (currentValue !== nextValue) {
+    conflicts.push(label + "は既存値があるため未上書き");
+  }
+}
+
+function ensureUserMasterLineColumns_(sheet) {
+  const lineDisplayName = ensureHeaderColumn_(sheet, "LINE表示名");
+  const lineUserId = ensureHeaderColumn_(sheet, "LINEユーザーID");
+  const liffLineUserId = ensureHeaderColumn_(sheet, "LIFF用LINEユーザーID");
+
+  return {
+    lineDisplayName: lineDisplayName,
+    lineUserId: lineUserId,
+    liffLineUserId: liffLineUserId
+  };
+}
+
+function ensureHeaderColumn_(sheet, headerName) {
+  const headerMap = getHeaderColumnMap_(sheet);
+  const normalizedHeaderName = normalizeHeaderName_(headerName);
+
+  if (headerMap[headerName] !== undefined) return headerMap[headerName];
+  if (headerMap[normalizedHeaderName] !== undefined) return headerMap[normalizedHeaderName];
+
+  const column = sheet.getLastColumn() + 1;
+  sheet.getRange(1, column).setValue(headerName);
+  return column - 1;
 }
 
 function getMessagingLineUserIdByLiffId_(ss, lineUserId) {
@@ -5769,6 +5932,7 @@ function onOpen() {
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
+    .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
     .addItem("👤 利用者状態列を設定", "setupUserStatusColumn")
     .addItem("🧪 テスト利用者を全スタッフに追加", "addTestUserForAllStaff")
     .addSeparator()
