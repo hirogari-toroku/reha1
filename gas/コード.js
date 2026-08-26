@@ -21,6 +21,8 @@ const ADMIN_LINE_USER_ID = "Uc21fa34144f5bc50c6e5324d5e4de344";
 const LIFF_DUPLICATE_VISIT_WINDOW_MS = 10 * 60 * 1000;
 const LIFF_INIT_CACHE_SECONDS = 1800;
 const LIFF_UNREGISTERED_CACHE_SECONDS = 30;
+const LIFF_SCHEDULE_LOOKBACK_MONTHS = 2;
+const LIFF_SCHEDULE_FUTURE_MONTHS = 6;
 
 // スタッフマスタ固定列
 // A:スタッフ名 B:LINE表示名 C:LINEユーザーID D:LIFF用LINEユーザーID E:カレンダーID
@@ -1322,8 +1324,7 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
 
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
   const targetStaff = normalizeName_(staffName);
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const dateWindow = getLiffScheduleDateWindow_();
   const schedules = [];
 
   values.forEach((row, index) => {
@@ -1338,7 +1339,7 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
     if (isCancelledScheduleStatus_(status)) return;
 
     const date = parseComparisonDate_(visitDate, row[0]);
-    if (date && date.getTime() < todayStart) return;
+    if (!isDateInLiffScheduleWindow_(date, dateWindow)) return;
 
     schedules.push({
       id: String(rowNumber),
@@ -1354,6 +1355,32 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
 
   schedules.sort((a, b) => String(a.visitDateValue).localeCompare(String(b.visitDateValue)));
   return schedules;
+}
+
+function getLiffScheduleDateWindow_() {
+  const today = new Date();
+  const start = new Date(
+    today.getFullYear(),
+    today.getMonth() - LIFF_SCHEDULE_LOOKBACK_MONTHS,
+    today.getDate()
+  );
+  const end = new Date(
+    today.getFullYear(),
+    today.getMonth() + LIFF_SCHEDULE_FUTURE_MONTHS,
+    today.getDate()
+  );
+
+  return {
+    startTime: new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime(),
+    endTime: new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999).getTime()
+  };
+}
+
+function isDateInLiffScheduleWindow_(date, dateWindow) {
+  if (!date) return false;
+  const time = date.getTime();
+  if (isNaN(time)) return false;
+  return time >= dateWindow.startTime && time <= dateWindow.endTime;
 }
 
 function ensureScheduleStatusColumns_(sheet) {

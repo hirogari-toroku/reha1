@@ -579,7 +579,7 @@
 
           scheduleItems = data.schedules || [];
           renderScheduleList();
-          if (!silent) setMessage(scheduleItems.length ? "" : "今後の予定はありません。");
+          if (!silent) setMessage(scheduleItems.length ? "" : "対象期間内の予定はありません。");
         })
         .catch(error => {
           scheduleItems = [];
@@ -596,7 +596,7 @@
       if (scheduleItems.length === 0) {
         const empty = document.createElement("div");
         empty.className = "schedule-card";
-        empty.textContent = "表示できる予定はありません。";
+        empty.textContent = "対象期間内の予定はありません。";
         area.appendChild(empty);
         return;
       }
