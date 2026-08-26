@@ -5425,7 +5425,7 @@ function updateScheduleVisitComparison() {
   const rows = Object.keys(comparisonMap)
     .map(key => comparisonMap[key])
     .sort((a, b) => {
-      const dateDiff = a.date.getTime() - b.date.getTime();
+      const dateDiff = b.date.getTime() - a.date.getTime();
       if (dateDiff !== 0) return dateDiff;
 
       const staffDiff = a.staffName.localeCompare(b.staffName, "ja");
@@ -5491,6 +5491,7 @@ function collectScheduleComparisonRows_(sheet, comparisonMap) {
     const visitDate = row[3];
     const status = row[8];
     if (!staffName || !userName || !visitDate) return;
+    if (isTestUserName_(userName)) return;
     if (isCancelledScheduleStatus_(status)) return;
 
     const date = parseComparisonDate_(visitDate, registeredAt);
@@ -5515,6 +5516,7 @@ function collectVisitComparisonRows_(sheet, comparisonMap) {
     const visitDate = row[4];
     const visitTime = row[5];
     if (!staffName || !userName || !visitDate) return;
+    if (isTestUserName_(userName)) return;
 
     const date = parseComparisonDate_(visitDate, registeredAt);
     if (!date) return;
