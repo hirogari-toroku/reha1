@@ -9,6 +9,8 @@ jobs:
   deploy-gas:
     name: Deploy GAS
     runs-on: ubuntu-latest
+    env:
+      GAS_DEPLOYMENT_ID: AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ
 
     steps:
       - name: Checkout
@@ -26,3 +28,10 @@ jobs:
 
       - name: Push Apps Script
         run: npx --yes @google/clasp push --force
+
+      - name: Deploy Web App
+        run: |
+          VERSION_OUTPUT="$(npx --yes @google/clasp version "GitHub Actions ${GITHUB_SHA}")"
+          echo "$VERSION_OUTPUT"
+          VERSION_NUMBER="$(echo "$VERSION_OUTPUT" | grep -Eo '[0-9]+' | tail -1)"
+          npx --yes @google/clasp deploy --deploymentId "$GAS_DEPLOYMENT_ID" --versionNumber "$VERSION_NUMBER" --description "GitHub Actions ${GITHUB_SHA}"
