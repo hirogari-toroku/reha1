@@ -6247,21 +6247,26 @@ function getBankCodeByName_(bankName) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("📌 自費リハ管理")
-    .addItem("🧾 スタッフアンケートをスタッフマスタへ取込", "importStaffQuestionnaireToStaffMaster")
-    .addSeparator()
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
-    .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
+    .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
+    .addSeparator()
+    .addItem("💰 月末給与処理を実行", "runPayrollAll")
+    .addItem("🎫 回数券を更新", "runCouponAll")
+    .addSeparator()
     .addItem("👤 利用者マスタLINE列を設定", "setupUserMasterLineColumns")
     .addItem("👤 利用者状態列を設定", "setupUserStatusColumn")
-    .addItem("🧪 テスト利用者を全スタッフに追加", "addTestUserForAllStaff")
-    .addSeparator()
-    .addItem("💰 給与関連を全て実行", "runPayrollAll")
-    .addItem("📒 賃金台帳を更新", "createWageLedger")
-    .addItem("📍 距離と交通費を更新", "updateDistanceAndTravelCosts")
-    .addItem("📂 給与PDFをスタッフフォルダへ移動", "movePayrollPdfsToStaffFolders")
-    .addSeparator()
-    .addItem("🎫 回数券を更新", "runCouponAll")
+    .addItem("🧾 スタッフアンケートをスタッフマスタへ取込", "importStaffQuestionnaireToStaffMaster")
     .addToUi();
+}
+
+function onOpenLegacyMenuReference_() {
+  // 非表示にした旧メニュー項目の参照用。必要になれば onOpen に戻せます。
+  return [
+    "addTestUserForAllStaff",
+    "createWageLedger",
+    "updateDistanceAndTravelCosts",
+    "movePayrollPdfsToStaffFolders"
+  ];
 }
