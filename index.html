@@ -1215,7 +1215,7 @@
     liff.init({ liffId: LIFF_ID })
       .then(() => {
         if (!liff.isLoggedIn()) {
-          liff.login();
+          liff.login({ redirectUri: window.location.href });
           return;
         }
 

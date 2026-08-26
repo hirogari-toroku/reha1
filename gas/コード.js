@@ -67,6 +67,32 @@ function doPost(e) {
   const events = json.events || [];
 
   events.forEach(event => {
+    if (event.type === "follow") {
+      const receivedAt = new Date();
+      const userId = event.source && event.source.userId ? event.source.userId : "";
+      const staffName = getStaffNameFromLineEvent_(ss, event);
+      const displayName = getLineDisplayNameFromEvent_(event);
+
+      saveLineUserDirectory_(ss, {
+        source: "公式LINE友だち追加",
+        messagingLineUserId: userId,
+        displayName: displayName,
+        detectedStaffName: staffName,
+        lastMessage: "友だち追加",
+        checkedAt: receivedAt
+      });
+
+      saveLineMessageLog_(
+        ss,
+        receivedAt,
+        "受信",
+        staffName,
+        userId,
+        "友だち追加"
+      );
+      return;
+    }
+
     if (event.type !== "message") return;
     if (event.message.type !== "text") return;
 
