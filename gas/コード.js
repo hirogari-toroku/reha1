@@ -6,6 +6,7 @@ const SCHEDULE_VISIT_COMPARISON_SHEET_NAME = "予定・実績照合";
 const STAFF_SHEET_NAME = "スタッフマスタ";
 const STAFF_USER_MASTER_SHEET_NAME = "スタッフ利用者マスタ";
 const LIFF_DISPLAY_MASTER_SHEET_NAME = "LIFF表示用マスタ";
+const LINE_USER_DIRECTORY_SHEET_NAME = "LINEユーザー一覧";
 const PAYROLL_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
 const GMO_TRANSFER_CSV_CONFIRMED_FOLDER_ID = "1vTWdykjuj7fO27lmoCImPjy3TdNEb9Jp";
 const GMO_PASTE_SHEET_NAME = "GMO入出金CSV貼付";
@@ -74,8 +75,18 @@ function doPost(e) {
     const staffName = getStaffNameFromLineEvent_(ss, event);
     const isRegisteredStaff = staffName !== "未登録";
     const calendarId = getStaffCalendarIdFromLineEvent_(ss, event);
+    const displayName = getLineDisplayNameFromEvent_(event);
     const text = event.message.text;
     const replyToken = event.replyToken;
+
+    saveLineUserDirectory_(ss, {
+      source: "公式LINEメッセージ",
+      messagingLineUserId: userId,
+      displayName: displayName,
+      detectedStaffName: staffName,
+      lastMessage: text,
+      checkedAt: receivedAt
+    });
 
     rawSheet.appendRow([receivedAt, staffName, userId, text]);
     saveLineMessageLog_(
@@ -335,6 +346,13 @@ function liffResponse_(e, data) {
 function logLiffLogin_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const staffName = getStaffName_(ss, lineUserId);
+  saveLineUserDirectory_(ss, {
+    source: "LIFF",
+    liffLineUserId: lineUserId,
+    displayName: displayName,
+    detectedStaffName: staffName,
+    checkedAt: new Date()
+  });
   const message =
     staffName === "未登録"
       ? "LIFFログインを確認しました。スタッフマスタのLIFF用LINEユーザーIDへ登録してください。表示名：" + (displayName || "")
@@ -354,9 +372,17 @@ function logLiffLogin_(lineUserId, displayName) {
 }
 
 function initLiffApp_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const displayMasterData = getLiffInitDataFromDisplayMaster_(lineUserId);
 
   if (displayMasterData) {
+    saveLineUserDirectory_(ss, {
+      source: "LIFF",
+      liffLineUserId: lineUserId,
+      displayName: displayName,
+      detectedStaffName: displayMasterData.staffName,
+      checkedAt: new Date()
+    });
     return {
       success: true,
       staffName: displayMasterData.staffName,
@@ -367,8 +393,14 @@ function initLiffApp_(lineUserId, displayName) {
     };
   }
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const staffName = getStaffNameCached_(ss, lineUserId);
+  saveLineUserDirectory_(ss, {
+    source: "LIFF",
+    liffLineUserId: lineUserId,
+    displayName: displayName,
+    detectedStaffName: staffName,
+    checkedAt: new Date()
+  });
 
   if (staffName === "未登録") {
     const message = "スタッフが未登録です。管理者へ確認してください。\nLIFF用LINEユーザーID：" + lineUserId;
@@ -1777,11 +1809,21 @@ function getStaffCalendarIdByStaffName_(ss, staffName) {
 }
 
 function getLineDisplayNameFromEvent_(event) {
+  if (event && event._lineDisplayNameFetched) {
+    return event._lineDisplayName || "";
+  }
+
   const token = PropertiesService
     .getScriptProperties()
     .getProperty("LINE_CHANNEL_ACCESS_TOKEN");
 
-  if (!token || !event || !event.source || !event.source.userId) return "";
+  if (!token || !event || !event.source || !event.source.userId) {
+    if (event) {
+      event._lineDisplayNameFetched = true;
+      event._lineDisplayName = "";
+    }
+    return "";
+  }
 
   try {
     const source = event.source;
@@ -1814,14 +1856,22 @@ function getLineDisplayNameFromEvent_(event) {
     });
 
     if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+      event._lineDisplayNameFetched = true;
+      event._lineDisplayName = "";
       return "";
     }
 
     const profile = JSON.parse(response.getContentText());
-    return profile.displayName || "";
+    event._lineDisplayNameFetched = true;
+    event._lineDisplayName = profile.displayName || "";
+    return event._lineDisplayName;
 
   } catch (error) {
     Logger.log(error);
+    if (event) {
+      event._lineDisplayNameFetched = true;
+      event._lineDisplayName = "";
+    }
     return "";
   }
 }
@@ -3786,6 +3836,318 @@ function saveLineMessageLog_(ss, dateTime, direction, senderName, lineUserId, me
   ]);
 }
 
+function saveLineUserDirectory_(ss, data) {
+  const sheet = ensureLineUserDirectorySheet_(ss);
+  const now = data.checkedAt || new Date();
+  const messagingLineUserId = String(data.messagingLineUserId || "").trim();
+  const liffLineUserId = String(data.liffLineUserId || "").trim();
+  const displayName = String(data.displayName || "").trim();
+  const detectedStaffName = String(data.detectedStaffName || "").trim();
+  const source = String(data.source || "").trim();
+  const lastMessage = String(data.lastMessage || "").trim();
+
+  if (!messagingLineUserId && !liffLineUserId && !displayName) return;
+
+  const rowNumber = findLineUserDirectoryRow_(sheet, messagingLineUserId, liffLineUserId, displayName);
+  const existing = rowNumber ? sheet.getRange(rowNumber, 1, 1, 13).getValues()[0] : [];
+  const match = resolveLineUserDirectoryMatch_(ss, displayName, detectedStaffName);
+  const firstSeenAt = existing[0] || now;
+  const mergedMessagingLineUserId = messagingLineUserId || existing[2] || "";
+  const mergedLiffLineUserId = liffLineUserId || existing[3] || match.liffLineUserId || "";
+  const mergedDisplayName = displayName || existing[4] || "";
+  const mergedSource = mergeDirectoryText_(existing[10], source);
+  const mergedMessage = lastMessage || existing[11] || "";
+  const note = match.note || existing[12] || "";
+
+  const values = [[
+    firstSeenAt,
+    now,
+    mergedMessagingLineUserId,
+    mergedLiffLineUserId,
+    mergedDisplayName,
+    match.type,
+    match.name,
+    match.staffRow || "",
+    match.userRow || "",
+    match.status,
+    mergedSource,
+    mergedMessage,
+    note
+  ]];
+
+  if (rowNumber) {
+    sheet.getRange(rowNumber, 1, 1, values[0].length).setValues(values);
+  } else {
+    sheet.appendRow(values[0]);
+  }
+}
+
+function ensureLineUserDirectorySheet_(ss) {
+  const headers = [
+    "初回確認日時",
+    "最終確認日時",
+    "Messaging API LINEユーザーID",
+    "LIFF用LINEユーザーID",
+    "LINE表示名",
+    "種別候補",
+    "マスタ候補名",
+    "スタッフマスタ行",
+    "利用者マスタ行",
+    "紐づけ状態",
+    "取得元",
+    "最終メッセージ",
+    "メモ"
+  ];
+  let sheet = ss.getSheetByName(LINE_USER_DIRECTORY_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(LINE_USER_DIRECTORY_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  const existingHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+  const needsHeaders = headers.some((header, index) => String(existingHeaders[index] || "") !== header);
+  if (needsHeaders) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+  }
+
+  return sheet;
+}
+
+function findLineUserDirectoryRow_(sheet, messagingLineUserId, liffLineUserId, displayName) {
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 13).getValues();
+  const targetMessagingId = String(messagingLineUserId || "").trim();
+  const targetLiffId = String(liffLineUserId || "").trim();
+  const targetDisplayName = normalizeName_(displayName);
+
+  for (let i = 0; i < values.length; i++) {
+    if (targetMessagingId && String(values[i][2] || "").trim() === targetMessagingId) return i + 2;
+    if (targetLiffId && String(values[i][3] || "").trim() === targetLiffId) return i + 2;
+  }
+
+  if (!targetDisplayName) return 0;
+
+  for (let i = 0; i < values.length; i++) {
+    if (normalizeName_(values[i][4]) === targetDisplayName) return i + 2;
+  }
+
+  return 0;
+}
+
+function resolveLineUserDirectoryMatch_(ss, displayName, detectedStaffName) {
+  const staffMatch = findStaffDirectoryMatch_(ss, displayName, detectedStaffName);
+  const userMatch = findUserDirectoryMatch_(ss, displayName);
+
+  if (staffMatch && userMatch) {
+    return {
+      type: "要確認",
+      name: staffMatch.name + " / " + userMatch.name,
+      staffRow: staffMatch.rowNumber,
+      userRow: userMatch.rowNumber,
+      liffLineUserId: staffMatch.liffLineUserId || "",
+      status: "スタッフ・利用者の両方に一致",
+      note: "同じLINE表示名がスタッフと利用者の両方にあります。手動確認してください。"
+    };
+  }
+
+  if (staffMatch) {
+    return {
+      type: "スタッフ",
+      name: staffMatch.name,
+      staffRow: staffMatch.rowNumber,
+      userRow: "",
+      liffLineUserId: staffMatch.liffLineUserId || "",
+      status: staffMatch.liffLineUserId ? "スタッフ候補・LIFF紐づけ済み" : "スタッフ候補",
+      note: ""
+    };
+  }
+
+  if (userMatch) {
+    return {
+      type: "利用者",
+      name: userMatch.name,
+      staffRow: "",
+      userRow: userMatch.rowNumber,
+      liffLineUserId: "",
+      status: "利用者候補",
+      note: ""
+    };
+  }
+
+  return {
+    type: "",
+    name: "",
+    staffRow: "",
+    userRow: "",
+    liffLineUserId: "",
+    status: "未紐づけ",
+    note: ""
+  };
+}
+
+function findStaffDirectoryMatch_(ss, displayName, detectedStaffName) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  if (!sheet) return null;
+
+  const targetDisplayName = normalizeName_(displayName);
+  const targetStaffName = normalizeName_(detectedStaffName);
+  const values = sheet.getDataRange().getValues();
+  const cols = getStaffMasterColumnMap_(sheet);
+  const matches = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const staffName = values[i][cols.name];
+    const lineDisplayName = values[i][cols.lineDisplayName];
+
+    if (!staffName) continue;
+
+    if (
+      (targetStaffName && normalizeName_(staffName) === targetStaffName) ||
+      (targetDisplayName && (
+        normalizeName_(staffName) === targetDisplayName ||
+        normalizeName_(lineDisplayName) === targetDisplayName
+      ))
+    ) {
+      matches.push({
+        name: staffName,
+        rowNumber: i + 1,
+        liffLineUserId: values[i][cols.liffLineUserId] || ""
+      });
+    }
+  }
+
+  const unique = dedupeDirectoryMatches_(matches);
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function findUserDirectoryMatch_(ss, displayName) {
+  const target = normalizeName_(displayName);
+  if (!target) return null;
+
+  const matches = [];
+  collectUserDirectoryMatchesFromUserMaster_(ss, target, matches);
+  collectUserDirectoryMatchesFromStaffUserMaster_(ss, target, matches);
+
+  const unique = dedupeDirectoryMatches_(matches);
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function collectUserDirectoryMatchesFromUserMaster_(ss, target, matches) {
+  const sheet = ss.getSheetByName("利用者マスタ");
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  const values = sheet.getDataRange().getValues();
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
+  const lineNameCol = getColumnIndex_(headerMap, ["LINE表示名", "LINE名"], -1);
+
+  for (let i = 1; i < values.length; i++) {
+    const userName = values[i][nameCol];
+    const lineDisplayName = lineNameCol >= 0 ? values[i][lineNameCol] : "";
+
+    if (!userName) continue;
+
+    if (
+      normalizeName_(userName) === target ||
+      normalizeName_(lineDisplayName) === target
+    ) {
+      matches.push({
+        name: userName,
+        rowNumber: i + 1
+      });
+    }
+  }
+}
+
+function collectUserDirectoryMatchesFromStaffUserMaster_(ss, target, matches) {
+  const sheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return;
+
+  const values = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < values.length; i++) {
+    const userName = values[i][1];
+    const lineDisplayName = values[i][2];
+
+    if (!userName) continue;
+
+    if (
+      normalizeName_(userName) === target ||
+      normalizeName_(lineDisplayName) === target
+    ) {
+      matches.push({
+        name: userName,
+        rowNumber: ""
+      });
+    }
+  }
+}
+
+function dedupeDirectoryMatches_(matches) {
+  const seen = {};
+  const unique = [];
+
+  matches.forEach(match => {
+    const key = normalizeName_(match.name);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    unique.push(match);
+  });
+
+  return unique;
+}
+
+function mergeDirectoryText_(currentValue, nextValue) {
+  const values = String(currentValue || "")
+    .split("、")
+    .map(value => value.trim())
+    .filter(value => value);
+  const next = String(nextValue || "").trim();
+
+  if (next && values.indexOf(next) === -1) {
+    values.push(next);
+  }
+
+  return values.join("、");
+}
+
+function updateLineUserDirectoryLinks() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ensureLineUserDirectorySheet_(ss);
+
+  if (sheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert("LINEユーザー一覧にデータがありません。");
+    return;
+  }
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 13).getValues();
+  const updatedRows = values.map(row => {
+    const displayName = row[4];
+    const match = resolveLineUserDirectoryMatch_(ss, displayName, "");
+
+    row[3] = row[3] || match.liffLineUserId || "";
+    row[5] = match.type;
+    row[6] = match.name;
+    row[7] = match.staffRow || "";
+    row[8] = match.userRow || "";
+    row[9] = match.status;
+    row[12] = match.note || row[12] || "";
+
+    return row;
+  });
+
+  sheet.getRange(2, 1, updatedRows.length, 13).setValues(updatedRows);
+  SpreadsheetApp.getUi().alert("LINEユーザー一覧の紐づけ候補を更新しました。件数：" + updatedRows.length + "件");
+}
+
 function getMessagingLineUserIdByLiffId_(ss, lineUserId) {
   if (!lineUserId) return "";
 
@@ -5406,6 +5768,7 @@ function onOpen() {
     .addSeparator()
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
+    .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("👤 利用者状態列を設定", "setupUserStatusColumn")
     .addItem("🧪 テスト利用者を全スタッフに追加", "addTestUserForAllStaff")
     .addSeparator()
