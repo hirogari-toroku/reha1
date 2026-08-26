@@ -78,6 +78,65 @@
       margin-top: 10px;
     }
 
+    .schedule-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .schedule-card {
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .schedule-card-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: #1f2933;
+      font-weight: 800;
+      line-height: 1.4;
+    }
+
+    .schedule-card-meta {
+      margin-top: 4px;
+      color: #627386;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .schedule-card-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .schedule-card-actions button {
+      padding: 10px;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 700;
+    }
+
+    .schedule-card-actions .danger {
+      border-color: #f3b8b3;
+      color: #b42318;
+    }
+
+    .schedule-edit {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .schedule-edit.hidden {
+      display: none;
+    }
+
     .date-chip {
       display: inline-flex;
       align-items: center;
@@ -171,7 +230,7 @@
 
     .tabs {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 8px;
       margin-bottom: 12px;
     }
@@ -222,6 +281,15 @@
       background: #a6b0ba;
     }
 
+    .secondary {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 800;
+    }
+
     .message {
       min-height: 22px;
       margin-top: 12px;
@@ -245,6 +313,7 @@
     <div class="tabs">
       <button id="visitTab" class="active" type="button" onclick="switchMode('visit')">実績</button>
       <button id="scheduleTab" type="button" onclick="switchMode('schedule')">予定</button>
+      <button id="manageTab" type="button" onclick="switchMode('manage')">確認</button>
     </div>
 
     <label for="userName">利用者</label>
@@ -290,6 +359,11 @@
       <button id="scheduleSubmit" class="submit" type="button" onclick="recordSchedule()">予定を登録</button>
     </div>
 
+    <div id="manageForm" class="hidden">
+      <button id="scheduleReload" class="secondary" type="button" onclick="loadSchedules()">予定を更新</button>
+      <div id="scheduleList" class="schedule-list"></div>
+    </div>
+
     <div id="message" class="message"></div>
   </div>
 
@@ -305,6 +379,8 @@
     let scheduleCalendarMonth = new Date();
     let visitSubmitting = false;
     let scheduleSubmitting = false;
+    let scheduleActionSubmitting = false;
+    let scheduleItems = [];
     let lastVisitKey = "";
     let lastVisitSentAt = 0;
 
@@ -344,6 +420,7 @@
     function setDisabled(disabled) {
       document.getElementById("visitSubmit").disabled = disabled;
       document.getElementById("scheduleSubmit").disabled = disabled;
+      document.getElementById("scheduleReload").disabled = disabled;
     }
 
     function setToday() {
@@ -361,12 +438,17 @@
 
     function switchMode(mode) {
       const isVisit = mode === "visit";
+      const isSchedule = mode === "schedule";
+      const isManage = mode === "manage";
 
       document.getElementById("visitTab").classList.toggle("active", isVisit);
-      document.getElementById("scheduleTab").classList.toggle("active", !isVisit);
+      document.getElementById("scheduleTab").classList.toggle("active", isSchedule);
+      document.getElementById("manageTab").classList.toggle("active", isManage);
       document.getElementById("visitForm").classList.toggle("hidden", !isVisit);
-      document.getElementById("scheduleForm").classList.toggle("hidden", isVisit);
-      if (!isVisit) renderScheduleCalendar();
+      document.getElementById("scheduleForm").classList.toggle("hidden", !isSchedule);
+      document.getElementById("manageForm").classList.toggle("hidden", !isManage);
+      if (isSchedule) renderScheduleCalendar();
+      if (isManage) loadSchedules();
       setMessage("");
     }
 
@@ -467,6 +549,209 @@
       scheduleDates = scheduleDates.filter(date => date !== value);
       renderScheduleCalendar();
       renderScheduleDates();
+    }
+
+    function getCurrentUserOptions() {
+      return Array.from(document.getElementById("userName").options)
+        .map(option => option.value)
+        .filter(Boolean);
+    }
+
+    function loadSchedules(silent) {
+      if (!lineUserId) return Promise.resolve();
+
+      const params = new URLSearchParams({
+        action: "getSchedules",
+        lineUserId: lineUserId
+      });
+
+      document.getElementById("scheduleList").innerHTML = "";
+      if (!silent) setMessage("予定を読み込み中...");
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          if (!data.success) {
+            scheduleItems = [];
+            renderScheduleList();
+            if (!silent) setMessage(data.message || "予定を取得できませんでした。");
+            return;
+          }
+
+          scheduleItems = data.schedules || [];
+          renderScheduleList();
+          if (!silent) setMessage(scheduleItems.length ? "" : "今後の予定はありません。");
+        })
+        .catch(error => {
+          scheduleItems = [];
+          renderScheduleList();
+          if (!silent) setMessage("予定の取得に失敗しました：" + error.message);
+        });
+    }
+
+    function renderScheduleList() {
+      const area = document.getElementById("scheduleList");
+      const users = getCurrentUserOptions();
+      area.innerHTML = "";
+
+      if (scheduleItems.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "schedule-card";
+        empty.textContent = "表示できる予定はありません。";
+        area.appendChild(empty);
+        return;
+      }
+
+      scheduleItems.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "schedule-card";
+
+        const title = document.createElement("div");
+        title.className = "schedule-card-title";
+
+        const name = document.createElement("span");
+        name.textContent = item.userName;
+
+        const date = document.createElement("span");
+        date.textContent = item.visitDate;
+
+        title.appendChild(name);
+        title.appendChild(date);
+        card.appendChild(title);
+
+        const meta = document.createElement("div");
+        meta.className = "schedule-card-meta";
+        meta.textContent = item.calendarStatus ? "カレンダー：" + item.calendarStatus : "状態：" + (item.status || "予定");
+        card.appendChild(meta);
+
+        const actions = document.createElement("div");
+        actions.className = "schedule-card-actions";
+
+        const editToggle = document.createElement("button");
+        editToggle.type = "button";
+        editToggle.textContent = "変更";
+        editToggle.disabled = scheduleActionSubmitting;
+        editToggle.onclick = () => toggleScheduleEdit(item.id);
+
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "danger";
+        cancelButton.textContent = "キャンセル";
+        cancelButton.disabled = scheduleActionSubmitting;
+        cancelButton.onclick = () => cancelSchedule(item.id, item.userName, item.visitDate);
+
+        actions.appendChild(editToggle);
+        actions.appendChild(cancelButton);
+        card.appendChild(actions);
+
+        const edit = document.createElement("div");
+        edit.id = "scheduleEdit-" + item.id;
+        edit.className = "schedule-edit hidden";
+
+        const select = document.createElement("select");
+        select.id = "scheduleUser-" + item.id;
+        users.forEach(userName => {
+          const option = document.createElement("option");
+          option.value = userName;
+          option.textContent = userName;
+          option.selected = userName === item.userName;
+          select.appendChild(option);
+        });
+
+        const input = document.createElement("input");
+        input.id = "scheduleDate-" + item.id;
+        input.type = "date";
+        input.value = item.visitDateValue || "";
+
+        const saveButton = document.createElement("button");
+        saveButton.type = "button";
+        saveButton.className = "submit";
+        saveButton.textContent = "変更を保存";
+        saveButton.disabled = scheduleActionSubmitting;
+        saveButton.onclick = () => updateSchedule(item.id);
+
+        edit.appendChild(select);
+        edit.appendChild(input);
+        edit.appendChild(saveButton);
+        card.appendChild(edit);
+
+        area.appendChild(card);
+      });
+    }
+
+    function toggleScheduleEdit(scheduleId) {
+      const edit = document.getElementById("scheduleEdit-" + scheduleId);
+      if (!edit) return;
+      edit.classList.toggle("hidden");
+      setMessage("");
+    }
+
+    function cancelSchedule(scheduleId, userName, visitDate) {
+      if (scheduleActionSubmitting) return;
+      if (!confirm(userName + " 様の " + visitDate + " の予定をキャンセルしますか？")) return;
+
+      const params = new URLSearchParams({
+        action: "cancelSchedule",
+        lineUserId: lineUserId,
+        scheduleId: scheduleId
+      });
+
+      scheduleActionSubmitting = true;
+      setDisabled(true);
+      renderScheduleList();
+      setMessage("キャンセル中...");
+
+      jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          setMessage(data.message || "");
+          return loadSchedules(true);
+        })
+        .catch(error => setMessage("キャンセルに失敗しました：" + error.message))
+        .finally(() => {
+          scheduleActionSubmitting = false;
+          setTimeout(() => {
+            setDisabled(false);
+            renderScheduleList();
+          }, 1200);
+        });
+    }
+
+    function updateSchedule(scheduleId) {
+      if (scheduleActionSubmitting) return;
+
+      const userName = document.getElementById("scheduleUser-" + scheduleId).value;
+      const visitDate = document.getElementById("scheduleDate-" + scheduleId).value;
+
+      if (!userName || !visitDate) {
+        setMessage("変更後の利用者と日付を選択してください。");
+        return;
+      }
+
+      const params = new URLSearchParams({
+        action: "updateSchedule",
+        lineUserId: lineUserId,
+        scheduleId: scheduleId,
+        userName: userName,
+        visitDate: visitDate
+      });
+
+      scheduleActionSubmitting = true;
+      setDisabled(true);
+      renderScheduleList();
+      setMessage("変更中...");
+
+      jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          setMessage(data.message || "");
+          return loadSchedules(true);
+        })
+        .catch(error => setMessage("変更に失敗しました：" + error.message))
+        .finally(() => {
+          scheduleActionSubmitting = false;
+          setTimeout(() => {
+            setDisabled(false);
+            renderScheduleList();
+          }, 1200);
+        });
     }
 
     function loadUsers() {
@@ -653,6 +938,7 @@
           "スタッフ情報を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
         return initApp(profile.displayName);
       })
+      .then(() => loadSchedules(true))
       .then(() => setDisabled(false))
       .catch(error => {
         setDisabled(true);
