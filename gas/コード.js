@@ -4586,6 +4586,24 @@ function ensureUserMasterLineColumns_(sheet) {
   };
 }
 
+function setupUserMasterLineColumns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("利用者マスタ");
+
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert("利用者マスタシートがありません。");
+    return;
+  }
+
+  const cols = ensureUserMasterLineColumns_(sheet);
+  SpreadsheetApp.getUi().alert(
+    "利用者マスタにLINE連携用の列を設定しました。\n" +
+    "LINE表示名：" + columnNumberToLetter_(cols.lineDisplayName + 1) + "列\n" +
+    "LINEユーザーID：" + columnNumberToLetter_(cols.lineUserId + 1) + "列\n" +
+    "LIFF用LINEユーザーID：" + columnNumberToLetter_(cols.liffLineUserId + 1) + "列"
+  );
+}
+
 function ensureHeaderColumn_(sheet, headerName) {
   const headerMap = getHeaderColumnMap_(sheet);
   const normalizedHeaderName = normalizeHeaderName_(headerName);
@@ -4596,6 +4614,19 @@ function ensureHeaderColumn_(sheet, headerName) {
   const column = sheet.getLastColumn() + 1;
   sheet.getRange(1, column).setValue(headerName);
   return column - 1;
+}
+
+function columnNumberToLetter_(columnNumber) {
+  let number = Number(columnNumber) || 0;
+  let letter = "";
+
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+    letter = String.fromCharCode(65 + remainder) + letter;
+    number = Math.floor((number - 1) / 26);
+  }
+
+  return letter || "";
 }
 
 function getMessagingLineUserIdByLiffId_(ss, lineUserId) {
@@ -6222,6 +6253,7 @@ function onOpen() {
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
+    .addItem("👤 利用者マスタLINE列を設定", "setupUserMasterLineColumns")
     .addItem("👤 利用者状態列を設定", "setupUserStatusColumn")
     .addItem("🧪 テスト利用者を全スタッフに追加", "addTestUserForAllStaff")
     .addSeparator()
