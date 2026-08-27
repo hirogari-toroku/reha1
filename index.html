@@ -404,6 +404,73 @@
       line-height: 1.5;
     }
 
+    .admin-link-editor {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #c9f2d9;
+      border-radius: 8px;
+      background: #f5fff8;
+    }
+
+    .admin-field {
+      display: grid;
+      gap: 5px;
+    }
+
+    .admin-field label {
+      margin: 0;
+      color: #334e68;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .admin-field select {
+      width: 100%;
+      height: 42px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+      color: #1f2933;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .admin-action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .admin-action-row button,
+    .admin-link-editor button {
+      min-height: 42px;
+      padding: 0 14px;
+      border: 1px solid #06c755;
+      border-radius: 8px;
+      background: #06c755;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .admin-action-row button.secondary {
+      border-color: #cbd5e1;
+      background: #fff;
+      color: #1f2933;
+    }
+
+    .admin-action-row button.danger {
+      border-color: #f3b4ad;
+      background: #fff;
+      color: #a61b12;
+    }
+
     .admin-relationship-header {
       display: flex;
       justify-content: space-between;
@@ -445,6 +512,19 @@
     .admin-chip.danger {
       background: #fde2e2;
       color: #b42318;
+    }
+
+    .admin-staff-card-title {
+      margin-bottom: 6px;
+      color: #1f2933;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    @media (max-width: 720px) {
+      .admin-link-editor {
+        grid-template-columns: 1fr;
+      }
     }
 
     .modal-backdrop {
@@ -583,6 +663,18 @@
 
     <div id="adminForm" class="hidden">
       <div id="adminSummary" class="admin-summary">管理情報を読み込み中...</div>
+      <div class="admin-section-title">紐づけを追加</div>
+      <div class="admin-link-editor">
+        <div class="admin-field">
+          <label for="adminAddStaff">スタッフ</label>
+          <select id="adminAddStaff"></select>
+        </div>
+        <div class="admin-field">
+          <label for="adminAddUser">利用者</label>
+          <select id="adminAddUser"></select>
+        </div>
+        <button type="button" onclick="addAdminRelationship()">追加</button>
+      </div>
       <div class="admin-section-title">スタッフと利用者のつながり</div>
       <div id="adminRelationshipList" class="admin-relationship-list"></div>
       <div class="admin-section-title">未紐づけ・確認候補</div>
@@ -628,6 +720,8 @@
     let lastVisitKey = "";
     let lastVisitSentAt = 0;
     let pendingScheduleVisit = null;
+    let adminStaffOptions = [];
+    let adminUserOptions = [];
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -891,7 +985,9 @@
             document.getElementById("staff").innerText = "利用者：" + data.userName + " 様";
           } else {
             document.getElementById("staff").innerText =
-              "LINE情報を保存しました。\nLIFF用LINEユーザーID：" + lineUserId;
+              "LINE情報を保存しました。\n" +
+              "LINE表示名：" + (lineDisplayName || "未取得") + "\n" +
+              "LIFF用LINEユーザーID：" + (data.liffLineUserId || lineUserId);
           }
           renderUserScheduleList();
           if (!silent) setMessage(data.message || "");
@@ -963,75 +1059,164 @@
       const summary = document.getElementById("adminSummary");
       const relationshipList = document.getElementById("adminRelationshipList");
       const list = document.getElementById("adminTargetList");
+      const addStaff = document.getElementById("adminAddStaff");
+      const addUser = document.getElementById("adminAddUser");
       relationshipList.innerHTML = "";
       list.innerHTML = "";
 
       if (!data || !data.success) {
         document.getElementById("staff").innerText = "管理者未登録";
         summary.innerText = (data && data.message) || "管理画面を表示できません。";
+        fillAdminSelect(addStaff, [], "", "スタッフを選択");
+        fillAdminSelect(addUser, [], "", "利用者を選択");
         return;
       }
+
+      adminStaffOptions = data.staffs || [];
+      adminUserOptions = data.users || [];
+      fillAdminSelect(addStaff, adminStaffOptions, "", "スタッフを選択");
+      fillAdminSelect(addUser, adminUserOptions, "", "利用者を選択");
 
       document.getElementById("staff").innerText =
         "管理者：" + (lineDisplayName || "取得済み");
       summary.innerText =
         "スタッフ利用者のつながり：" + (data.relationshipCount || 0) + "件\n" +
         "確認が必要なつながり：" + (data.issueCount || 0) + "件\n" +
+        "未担当の利用者：" + ((data.unassignedUsers || []).length) + "件\n" +
         "未紐づけLINE候補：" + (data.unlinkedCount || 0) + "件\n" +
         "LIFF用LINEユーザーID：" + lineUserId;
 
-      if (!(data.relationships || []).length) {
+      if (!(data.staffCards || []).length) {
         const empty = document.createElement("div");
         empty.className = "admin-relationship";
         empty.textContent = "スタッフと利用者のつながりはまだ登録されていません。";
         relationshipList.appendChild(empty);
       }
 
-      (data.relationships || []).forEach(item => {
+      (data.staffCards || []).forEach(staffCard => {
         const card = document.createElement("div");
         card.className = "admin-relationship";
 
-        const header = document.createElement("div");
-        header.className = "admin-relationship-header";
+        const staffTitle = document.createElement("div");
+        staffTitle.className = "admin-staff-card-title";
+        staffTitle.textContent =
+          (staffCard.staffName || "スタッフ未設定") +
+          "（担当 " + ((staffCard.relationships || []).length) + "件）";
+        card.appendChild(staffTitle);
 
-        const names = document.createElement("span");
-        names.textContent =
-          (item.staffName || "スタッフ未設定") +
-          "  →  " +
-          (item.userName || "利用者未設定");
+        const staffChips = document.createElement("div");
+        staffChips.className = "admin-chip-row";
+        staffChips.appendChild(createAdminChip(staffCard.liffLinked ? "スタッフLIFFあり" : "スタッフLIFF未設定", staffCard.liffLinked ? "ok" : "warn"));
+        staffChips.appendChild(createAdminChip(staffCard.messagingLinked ? "スタッフLINE IDあり" : "スタッフLINE ID未取得", staffCard.messagingLinked ? "ok" : "warn"));
+        card.appendChild(staffChips);
 
-        const ids = document.createElement("span");
-        ids.className = "admin-link-arrow";
-        ids.textContent = (item.staffId || "-") + " / " + (item.userId || "-");
-
-        header.appendChild(names);
-        header.appendChild(ids);
-        card.appendChild(header);
-
-        const chips = document.createElement("div");
-        chips.className = "admin-chip-row";
-        chips.appendChild(createAdminChip(item.userStatus || "状態未設定", item.userStatus ? "ok" : "warn"));
-        chips.appendChild(createAdminChip(item.userLiffLinked ? "LIFF紐づけ済" : "LIFF未紐づけ", item.userLiffLinked ? "ok" : "danger"));
-        chips.appendChild(createAdminChip(item.userMessagingLinked ? "LINE IDあり" : "LINE ID未取得", item.userMessagingLinked ? "ok" : "warn"));
-        if (item.issueText) chips.appendChild(createAdminChip(item.issueText, "danger"));
-        card.appendChild(chips);
-
-        if (item.userLineDisplayName || item.staffLineDisplayName) {
-          const meta = document.createElement("div");
-          meta.className = "schedule-card-meta";
-          meta.textContent =
-            "スタッフLINE名：" + (item.staffLineDisplayName || "-") +
-            " / 利用者LINE名：" + (item.userLineDisplayName || "-");
-          card.appendChild(meta);
+        if (!(staffCard.relationships || []).length) {
+          const empty = document.createElement("div");
+          empty.className = "schedule-card-meta";
+          empty.textContent = "現在このスタッフに紐づいている利用者はいません。";
+          card.appendChild(empty);
         }
+
+        (staffCard.relationships || []).forEach(item => {
+          const row = document.createElement("div");
+          row.className = "admin-relationship";
+
+          const header = document.createElement("div");
+          header.className = "admin-relationship-header";
+
+          const names = document.createElement("span");
+          names.textContent =
+            (item.staffName || "スタッフ未設定") +
+            "  →  " +
+            (item.userName || "利用者未設定");
+
+          const ids = document.createElement("span");
+          ids.className = "admin-link-arrow";
+          ids.textContent = (item.staffId || "-") + " / " + (item.userId || "-");
+
+          header.appendChild(names);
+          header.appendChild(ids);
+          row.appendChild(header);
+
+          const chips = document.createElement("div");
+          chips.className = "admin-chip-row";
+          chips.appendChild(createAdminChip(item.userStatus || "状態未設定", item.userStatus ? "ok" : "warn"));
+          chips.appendChild(createAdminChip(item.userLiffLinked ? "利用者LIFF紐づけ済" : "利用者LIFF未紐づけ", item.userLiffLinked ? "ok" : "danger"));
+          chips.appendChild(createAdminChip(item.userMessagingLinked ? "利用者LINE IDあり" : "利用者LINE ID未取得", item.userMessagingLinked ? "ok" : "warn"));
+          if (item.issueText) chips.appendChild(createAdminChip(item.issueText, "danger"));
+          row.appendChild(chips);
+
+          if (item.userLineDisplayName || item.staffLineDisplayName) {
+            const meta = document.createElement("div");
+            meta.className = "schedule-card-meta";
+            meta.textContent =
+              "スタッフLINE名：" + (item.staffLineDisplayName || "-") +
+              " / 利用者LINE名：" + (item.userLineDisplayName || "-");
+            row.appendChild(meta);
+          }
+
+          const editor = document.createElement("div");
+          editor.className = "admin-link-editor";
+
+          const staffField = document.createElement("div");
+          staffField.className = "admin-field";
+          const staffLabel = document.createElement("label");
+          staffLabel.textContent = "スタッフ";
+          const staffSelect = document.createElement("select");
+          staffSelect.id = "adminStaff-" + item.rowNumber;
+          fillAdminSelect(staffSelect, adminStaffOptions, item.staffId || "", "スタッフを選択");
+          staffField.appendChild(staffLabel);
+          staffField.appendChild(staffSelect);
+
+          const userField = document.createElement("div");
+          userField.className = "admin-field";
+          const userLabel = document.createElement("label");
+          userLabel.textContent = "利用者";
+          const userSelect = document.createElement("select");
+          userSelect.id = "adminUser-" + item.rowNumber;
+          fillAdminSelect(userSelect, adminUserOptions, item.userId || "", "利用者を選択");
+          userField.appendChild(userLabel);
+          userField.appendChild(userSelect);
+
+          const actionRow = document.createElement("div");
+          actionRow.className = "admin-action-row";
+          const saveButton = document.createElement("button");
+          saveButton.type = "button";
+          saveButton.textContent = "保存";
+          saveButton.onclick = () => saveAdminRelationship(item.rowNumber);
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "danger";
+          deleteButton.textContent = "解除";
+          deleteButton.onclick = () => deleteAdminRelationship(item.rowNumber);
+          actionRow.appendChild(saveButton);
+          actionRow.appendChild(deleteButton);
+
+          editor.appendChild(staffField);
+          editor.appendChild(userField);
+          editor.appendChild(actionRow);
+          row.appendChild(editor);
+
+          card.appendChild(row);
+        });
 
         relationshipList.appendChild(card);
       });
 
+      const unassignedUsers = data.unassignedUsers || [];
+      if (unassignedUsers.length) {
+        const title = document.createElement("div");
+        title.className = "admin-target";
+        title.textContent =
+          "未担当の利用者：" +
+          unassignedUsers.map(user => user.name).join("、");
+        list.appendChild(title);
+      }
+
       if (!(data.unlinkedLineUsers || []).length) {
         const empty = document.createElement("div");
         empty.className = "admin-target";
-        empty.textContent = "未紐づけ候補はありません。";
+        empty.textContent = "未紐づけLINE候補はありません。";
         list.appendChild(empty);
       }
 
@@ -1048,6 +1233,58 @@
       });
     }
 
+    function fillAdminSelect(select, items, selectedId, emptyText) {
+      if (!select) return;
+      select.innerHTML = "";
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = emptyText || "選択してください";
+      select.appendChild(empty);
+
+      (items || []).forEach(item => {
+        const option = document.createElement("option");
+        option.value = item.id || "";
+        option.textContent =
+          (item.name || "名前未設定") +
+          (item.lineDisplayName ? " / " + item.lineDisplayName : "") +
+          (item.status ? "（" + item.status + "）" : "");
+        if (String(item.id || "") === String(selectedId || "")) option.selected = true;
+        select.appendChild(option);
+      });
+    }
+
+    function addAdminRelationship() {
+      const staffId = document.getElementById("adminAddStaff").value;
+      const userId = document.getElementById("adminAddUser").value;
+      saveAdminRelationshipRequest("", staffId, userId);
+    }
+
+    function saveAdminRelationship(rowNumber) {
+      const staffId = document.getElementById("adminStaff-" + rowNumber).value;
+      const userId = document.getElementById("adminUser-" + rowNumber).value;
+      saveAdminRelationshipRequest(rowNumber, staffId, userId);
+    }
+
+    function saveAdminRelationshipRequest(rowNumber, staffId, userId) {
+      if (!staffId || !userId) {
+        setMessage("スタッフと利用者を選択してください。");
+        return;
+      }
+
+      runAdminAction("adminSaveRelationship", {
+        rowNumber: rowNumber || "",
+        staffId: staffId,
+        userId: userId
+      });
+    }
+
+    function deleteAdminRelationship(rowNumber) {
+      if (!window.confirm("この紐づけを解除しますか？")) return;
+      runAdminAction("adminDeleteRelationship", {
+        rowNumber: rowNumber
+      });
+    }
+
     function createAdminChip(text, kind) {
       const chip = document.createElement("span");
       chip.className = "admin-chip" + (kind ? " " + kind : "");
@@ -1055,13 +1292,16 @@
       return chip;
     }
 
-    function runAdminAction(action) {
+    function runAdminAction(action, extraParams) {
       if (!lineUserId) return;
 
       const params = new URLSearchParams({
         action: action,
         lineUserId: lineUserId,
         displayName: lineDisplayName || ""
+      });
+      Object.keys(extraParams || {}).forEach(key => {
+        params.set(key, extraParams[key]);
       });
 
       setMessage("処理中...");
@@ -1225,6 +1465,13 @@
           meta.className = "schedule-card-meta";
           meta.textContent = "担当：" + item.staffName;
           card.appendChild(meta);
+        }
+
+        if (item.updatedAt) {
+          const updated = document.createElement("div");
+          updated.className = "schedule-card-meta";
+          updated.textContent = "更新：" + item.updatedAt;
+          card.appendChild(updated);
         }
 
         area.appendChild(card);
