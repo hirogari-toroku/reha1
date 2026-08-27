@@ -6276,6 +6276,38 @@ function importUserQuestionnaireToUserMaster() {
   SpreadsheetApp.getUi().alert(result.message);
 }
 
+function runDataSetupAll() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const messages = [];
+
+  const firstIdResult = setupMasterIdColumnsCore_(ss);
+  messages.push(firstIdResult.message);
+
+  const importResult = importUserQuestionnaireToUserMasterCore_(ss);
+  messages.push(importResult.message);
+
+  const directorySheet = ensureLineUserDirectorySheet_(ss);
+  const directoryUpdatedCount = updateLineUserDirectoryLinksWithoutAlert_(ss, directorySheet);
+  messages.push("LINEユーザー一覧の紐づけ候補を更新しました。件数：" + directoryUpdatedCount + "件");
+
+  const lineApplyResult = applyLineUserDirectoryToMastersCore_(ss);
+  messages.push(lineApplyResult.message);
+
+  const secondIdResult = setupMasterIdColumnsCore_(ss);
+  messages.push(
+    "最終ID確認が完了しました。\n" +
+    "スタッフID追加：" + secondIdResult.staffAddedCount + "件\n" +
+    "利用者ID追加：" + secondIdResult.userAddedCount + "件\n" +
+    "スタッフ利用者マスタID反映：" + secondIdResult.relationUpdatedCount + "件\n" +
+    "確認が必要：" + secondIdResult.relationSkippedCount + "件"
+  );
+
+  updateLiffDisplayMaster(true);
+  messages.push("LIFF表示用マスタを更新しました。");
+
+  SpreadsheetApp.getUi().alert("データ整備を一括実行しました。\n\n" + messages.join("\n\n"));
+}
+
 function importUserQuestionnaireToUserMasterCore_(ss) {
   const sourceSheet = getUserQuestionnaireSourceSheet_();
   const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
@@ -6932,6 +6964,8 @@ function getBankCodeByName_(bankName) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu("📌 自費リハ管理")
+    .addItem("✅ データ整備を一括実行", "runDataSetupAll")
+    .addSeparator()
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
