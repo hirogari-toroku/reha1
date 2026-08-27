@@ -368,26 +368,6 @@
       font-size: 17px;
     }
 
-    .admin-actions {
-      display: grid;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    .admin-actions button {
-      padding: 12px;
-      border: 1px solid #c8d0d9;
-      background: #fff;
-      color: #1f2933;
-      font-weight: 800;
-    }
-
-    .admin-actions .primary {
-      border: 0;
-      background: #06c755;
-      color: #fff;
-    }
-
     .admin-summary {
       margin-top: 12px;
       padding: 12px;
@@ -400,12 +380,21 @@
       white-space: pre-line;
     }
 
+    .admin-section-title {
+      margin: 18px 0 8px;
+      color: #1f2933;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .admin-relationship-list,
     .admin-target-list {
       display: grid;
       gap: 8px;
       margin-top: 12px;
     }
 
+    .admin-relationship,
     .admin-target {
       padding: 10px;
       border: 1px solid #dde3ea;
@@ -413,6 +402,49 @@
       background: #fff;
       font-size: 14px;
       line-height: 1.5;
+    }
+
+    .admin-relationship-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 900;
+    }
+
+    .admin-link-arrow {
+      color: #06a346;
+      font-weight: 900;
+    }
+
+    .admin-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .admin-chip {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #edf2f7;
+      color: #334e68;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .admin-chip.ok {
+      background: #dff6e5;
+      color: #05603a;
+    }
+
+    .admin-chip.warn {
+      background: #fff1c2;
+      color: #8a5a00;
+    }
+
+    .admin-chip.danger {
+      background: #fde2e2;
+      color: #b42318;
     }
 
     .modal-backdrop {
@@ -550,12 +582,10 @@
     </div>
 
     <div id="adminForm" class="hidden">
-      <div class="admin-actions">
-        <button class="primary" type="button" onclick="runAdminAction('adminImportUserQuestionnaire')">利用者アンケートを取り込む</button>
-        <button type="button" onclick="runAdminAction('adminApplyLineUsers')">LINEユーザー一覧をマスタへ反映</button>
-        <button type="button" onclick="runAdminAction('adminSetupIds')">スタッフID・利用者IDを整える</button>
-      </div>
       <div id="adminSummary" class="admin-summary">管理情報を読み込み中...</div>
+      <div class="admin-section-title">スタッフと利用者のつながり</div>
+      <div id="adminRelationshipList" class="admin-relationship-list"></div>
+      <div class="admin-section-title">未紐づけ・確認候補</div>
       <div id="adminTargetList" class="admin-target-list"></div>
     </div>
 
@@ -931,7 +961,9 @@
 
     function renderAdminDashboard(data) {
       const summary = document.getElementById("adminSummary");
+      const relationshipList = document.getElementById("adminRelationshipList");
       const list = document.getElementById("adminTargetList");
+      relationshipList.innerHTML = "";
       list.innerHTML = "";
 
       if (!data || !data.success) {
@@ -943,10 +975,67 @@
       document.getElementById("staff").innerText =
         "管理者：" + (lineDisplayName || "取得済み");
       summary.innerText =
-        "確認が必要なLINEユーザー：" + (data.pendingCount || 0) + "件\n" +
+        "スタッフ利用者のつながり：" + (data.relationshipCount || 0) + "件\n" +
+        "確認が必要なつながり：" + (data.issueCount || 0) + "件\n" +
+        "未紐づけLINE候補：" + (data.unlinkedCount || 0) + "件\n" +
         "LIFF用LINEユーザーID：" + lineUserId;
 
-      (data.targets || []).forEach(item => {
+      if (!(data.relationships || []).length) {
+        const empty = document.createElement("div");
+        empty.className = "admin-relationship";
+        empty.textContent = "スタッフと利用者のつながりはまだ登録されていません。";
+        relationshipList.appendChild(empty);
+      }
+
+      (data.relationships || []).forEach(item => {
+        const card = document.createElement("div");
+        card.className = "admin-relationship";
+
+        const header = document.createElement("div");
+        header.className = "admin-relationship-header";
+
+        const names = document.createElement("span");
+        names.textContent =
+          (item.staffName || "スタッフ未設定") +
+          "  →  " +
+          (item.userName || "利用者未設定");
+
+        const ids = document.createElement("span");
+        ids.className = "admin-link-arrow";
+        ids.textContent = (item.staffId || "-") + " / " + (item.userId || "-");
+
+        header.appendChild(names);
+        header.appendChild(ids);
+        card.appendChild(header);
+
+        const chips = document.createElement("div");
+        chips.className = "admin-chip-row";
+        chips.appendChild(createAdminChip(item.userStatus || "状態未設定", item.userStatus ? "ok" : "warn"));
+        chips.appendChild(createAdminChip(item.userLiffLinked ? "LIFF紐づけ済" : "LIFF未紐づけ", item.userLiffLinked ? "ok" : "danger"));
+        chips.appendChild(createAdminChip(item.userMessagingLinked ? "LINE IDあり" : "LINE ID未取得", item.userMessagingLinked ? "ok" : "warn"));
+        if (item.issueText) chips.appendChild(createAdminChip(item.issueText, "danger"));
+        card.appendChild(chips);
+
+        if (item.userLineDisplayName || item.staffLineDisplayName) {
+          const meta = document.createElement("div");
+          meta.className = "schedule-card-meta";
+          meta.textContent =
+            "スタッフLINE名：" + (item.staffLineDisplayName || "-") +
+            " / 利用者LINE名：" + (item.userLineDisplayName || "-");
+          card.appendChild(meta);
+        }
+
+        relationshipList.appendChild(card);
+      });
+
+      if (!(data.unlinkedLineUsers || []).length) {
+        const empty = document.createElement("div");
+        empty.className = "admin-target";
+        empty.textContent = "未紐づけ候補はありません。";
+        list.appendChild(empty);
+      }
+
+      (data.unlinkedLineUsers || []).forEach(item => {
         const card = document.createElement("div");
         card.className = "admin-target";
         card.textContent =
@@ -957,6 +1046,13 @@
           (item.note ? "\nメモ：" + item.note : "");
         list.appendChild(card);
       });
+    }
+
+    function createAdminChip(text, kind) {
+      const chip = document.createElement("span");
+      chip.className = "admin-chip" + (kind ? " " + kind : "");
+      chip.textContent = text;
+      return chip;
     }
 
     function runAdminAction(action) {

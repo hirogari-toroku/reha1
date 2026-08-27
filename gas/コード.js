@@ -6528,7 +6528,7 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
   const rows = directorySheet.getLastRow() < 2
     ? []
     : directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
-  const targets = rows
+  const unlinkedLineUsers = rows
     .filter(row => String(row[9] || "").indexOf("反映済み") === -1)
     .slice(0, 50)
     .map(row => ({
@@ -6539,15 +6539,156 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
       source: row[10] || "",
       note: row[12] || ""
     }));
+  const relationshipData = getAdminRelationshipData_(ss);
 
   return {
     success: true,
     adminName: displayName || "",
     lineUserId: lineUserId || "",
-    pendingCount: targets.length,
-    targets: targets,
-    message: targets.length ? "" : "確認が必要なLINEユーザーはありません。"
+    relationshipCount: relationshipData.relationships.length,
+    issueCount: relationshipData.issues.length,
+    unlinkedCount: unlinkedLineUsers.length,
+    relationships: relationshipData.relationships,
+    issues: relationshipData.issues,
+    unlinkedLineUsers: unlinkedLineUsers,
+    message: ""
   };
+}
+
+function getAdminRelationshipData_(ss) {
+  const staffUserSheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
+  const staffMap = getAdminStaffMap_(ss);
+  const userMap = getAdminUserMap_(ss);
+  const relationships = [];
+  const issues = [];
+
+  if (!staffUserSheet || staffUserSheet.getLastRow() < 2) {
+    return {
+      relationships: [],
+      issues: [{
+        type: "スタッフ利用者マスタ",
+        message: "スタッフ利用者マスタに紐づけデータがありません。"
+      }]
+    };
+  }
+
+  const headerMap = getHeaderColumnMap_(staffUserSheet);
+  const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名", "氏名"], 0);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 1);
+  const lineLabelCol = getColumnIndex_(headerMap, ["LINE表記", "LINE表示名", "LINE名"], 2);
+  const staffIdCol = getColumnIndex_(headerMap, [STAFF_ID_HEADER], -1);
+  const userIdCol = getColumnIndex_(headerMap, [USER_ID_HEADER], -1);
+  const values = staffUserSheet.getRange(2, 1, staffUserSheet.getLastRow() - 1, staffUserSheet.getLastColumn()).getValues();
+
+  values.forEach((row, index) => {
+    const staffName = String(row[staffNameCol] || "").trim();
+    const userName = String(row[userNameCol] || "").trim();
+    if (!staffName && !userName) return;
+
+    const staffId = staffIdCol >= 0 ? String(row[staffIdCol] || "").trim() : "";
+    const userId = userIdCol >= 0 ? String(row[userIdCol] || "").trim() : "";
+    const staff = staffMap.byName[normalizeName_(staffName)] || staffMap.byId[staffId] || {};
+    const user = userMap.byName[normalizeName_(userName)] || userMap.byId[userId] || {};
+    const lineLabel = lineLabelCol >= 0 ? String(row[lineLabelCol] || "").trim() : "";
+    const relationIssues = [];
+
+    if (!staffName) relationIssues.push("スタッフ名なし");
+    if (!userName) relationIssues.push("利用者名なし");
+    if (!staff.id) relationIssues.push("スタッフID未設定");
+    if (!user.id) relationIssues.push("利用者ID未設定");
+    if (!user.liffLineUserId && !user.messagingLineUserId) relationIssues.push("利用者LINE未紐づけ");
+
+    const relationship = {
+      rowNumber: index + 2,
+      staffName: staffName,
+      staffId: staff.id || staffId || "",
+      staffLineDisplayName: staff.lineDisplayName || "",
+      userName: userName,
+      userId: user.id || userId || "",
+      userLineDisplayName: user.lineDisplayName || lineLabel || "",
+      userStatus: user.status || "",
+      userLiffLinked: !!user.liffLineUserId,
+      userMessagingLinked: !!user.messagingLineUserId,
+      issueText: relationIssues.join("、")
+    };
+
+    relationships.push(relationship);
+
+    if (relationIssues.length) {
+      issues.push({
+        type: "紐づけ確認",
+        staffName: staffName,
+        userName: userName,
+        message: relationIssues.join("、")
+      });
+    }
+  });
+
+  return {
+    relationships: relationships,
+    issues: issues
+  };
+}
+
+function getAdminStaffMap_(ss) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  const map = { byName: {}, byId: {} };
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const cols = getStaffMasterColumnMap_(sheet);
+  const headerMap = getHeaderColumnMap_(sheet);
+  const idCol = getColumnIndex_(headerMap, [STAFF_ID_HEADER], -1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  values.forEach(row => {
+    const name = String(row[cols.name] || "").trim();
+    const id = idCol >= 0 ? String(row[idCol] || "").trim() : "";
+    const item = {
+      name: name,
+      id: id,
+      lineDisplayName: String(row[cols.lineDisplayName] || "").trim(),
+      messagingLineUserId: String(row[cols.lineUserId] || "").trim(),
+      liffLineUserId: String(row[cols.liffLineUserId] || "").trim()
+    };
+
+    if (name) map.byName[normalizeName_(name)] = item;
+    if (id) map.byId[id] = item;
+  });
+
+  return map;
+}
+
+function getAdminUserMap_(ss) {
+  const sheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+  const map = { byName: {}, byId: {} };
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
+  const idCol = getColumnIndex_(headerMap, [USER_ID_HEADER], -1);
+  const lineDisplayNameCol = getColumnIndex_(headerMap, ["LINE表示名", "LINE名"], -1);
+  const messagingLineUserIdCol = getColumnIndex_(headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], -1);
+  const liffLineUserIdCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], -1);
+  const statusCol = getColumnIndex_(headerMap, ["状態"], -1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  values.forEach(row => {
+    const name = String(row[nameCol] || "").trim();
+    const id = idCol >= 0 ? String(row[idCol] || "").trim() : "";
+    const item = {
+      name: name,
+      id: id,
+      lineDisplayName: lineDisplayNameCol >= 0 ? String(row[lineDisplayNameCol] || "").trim() : "",
+      messagingLineUserId: messagingLineUserIdCol >= 0 ? String(row[messagingLineUserIdCol] || "").trim() : "",
+      liffLineUserId: liffLineUserIdCol >= 0 ? String(row[liffLineUserIdCol] || "").trim() : "",
+      status: statusCol >= 0 ? String(row[statusCol] || "").trim() : ""
+    };
+
+    if (name) map.byName[normalizeName_(name)] = item;
+    if (id) map.byId[id] = item;
+  });
+
+  return map;
 }
 
 function adminSetupIdsFromLiff_(lineUserId, displayName) {
