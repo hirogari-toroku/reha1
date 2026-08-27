@@ -13,6 +13,12 @@ const GMO_PASTE_SHEET_NAME = "GMO入出金CSV貼付";
 const COUPON_SHEET_NAME = "回数券管理";
 const STAFF_QUESTIONNAIRE_SPREADSHEET_ID = "1sQzA9oHCMH712l8gNuoZxrB29eX_UeQg5zHgy_1_tQw";
 const STAFF_QUESTIONNAIRE_SHEET_ID = 1876133724;
+const USER_QUESTIONNAIRE_SPREADSHEET_ID = "1y8h9EZG47uYVuoV3K1L_m9-JaDP8GRLQ6ZZ-HpgPxKM";
+const USER_QUESTIONNAIRE_SHEET_ID = 1702028371;
+const USER_MASTER_SHEET_NAME = "利用者マスタ";
+const ADMIN_MASTER_SHEET_NAME = "管理者マスタ";
+const STAFF_ID_HEADER = "スタッフID";
+const USER_ID_HEADER = "利用者ID";
 const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
 const PDF_EXPORT_WAIT_MS = 1000;
@@ -320,6 +326,34 @@ function doGet(e) {
 
   if (action === "getUserSchedules") {
     return liffResponse_(e, getUserSchedulesForLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "getAdminDashboard") {
+    return liffResponse_(e, getAdminDashboardForLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "adminSetupIds") {
+    return liffResponse_(e, adminSetupIdsFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "adminImportUserQuestionnaire") {
+    return liffResponse_(e, adminImportUserQuestionnaireFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "adminApplyLineUsers") {
+    return liffResponse_(e, adminApplyLineUsersFromLiff_(
       e.parameter.lineUserId,
       e.parameter.displayName
     ));
@@ -4468,18 +4502,29 @@ function updateLineUserDirectoryLinks() {
 
 function applyLineUserDirectoryToMasters() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = applyLineUserDirectoryToMastersCore_(ss);
+
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function applyLineUserDirectoryToMastersCore_(ss) {
   const directorySheet = ensureLineUserDirectorySheet_(ss);
 
   if (directorySheet.getLastRow() < 2) {
-    SpreadsheetApp.getUi().alert("LINEユーザー一覧にデータがありません。");
-    return;
+    return {
+      success: true,
+      staffUpdatedCount: 0,
+      userUpdatedCount: 0,
+      skippedCount: 0,
+      message: "LINEユーザー一覧にデータがありません。"
+    };
   }
 
   updateLineUserDirectoryLinksWithoutAlert_(ss, directorySheet);
 
   const rows = directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
   const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
-  const userSheet = ss.getSheetByName("利用者マスタ");
+  const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
   const staffCols = staffSheet ? getStaffMasterColumnMap_(staffSheet) : null;
   const userCols = userSheet ? ensureUserMasterLineColumns_(userSheet) : null;
   let staffUpdatedCount = 0;
@@ -4534,12 +4579,17 @@ function applyLineUserDirectoryToMasters() {
     }
   });
 
-  SpreadsheetApp.getUi().alert(
-    "LINEユーザー一覧からマスタへ反映しました。\n" +
-    "スタッフ更新：" + staffUpdatedCount + "件\n" +
-    "利用者更新：" + userUpdatedCount + "件\n" +
-    "確認・スキップ：" + skippedCount + "件"
-  );
+  return {
+    success: true,
+    staffUpdatedCount: staffUpdatedCount,
+    userUpdatedCount: userUpdatedCount,
+    skippedCount: skippedCount,
+    message:
+      "LINEユーザー一覧からマスタへ反映しました。\n" +
+      "スタッフ更新：" + staffUpdatedCount + "件\n" +
+      "利用者更新：" + userUpdatedCount + "件\n" +
+      "確認・スキップ：" + skippedCount + "件"
+  };
 }
 
 function updateLineUserDirectoryLinksWithoutAlert_(ss, sheet) {
@@ -6071,6 +6121,453 @@ function formatScheduleVisitComparisonSheet_(sheet, columnCount) {
   sheet.autoResizeColumns(1, columnCount);
 }
 
+function setupMasterIdColumns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = setupMasterIdColumnsCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function setupMasterIdColumnsCore_(ss) {
+  const staffResult = ensureStaffMasterIds_(ss);
+  const userResult = ensureUserMasterIds_(ss);
+  const relationResult = ensureStaffUserMasterIds_(ss);
+
+  return {
+    success: true,
+    staffAddedCount: staffResult.addedCount,
+    userAddedCount: userResult.addedCount,
+    relationUpdatedCount: relationResult.updatedCount,
+    relationSkippedCount: relationResult.skippedCount,
+    message:
+      "ID列の整備が完了しました。\n" +
+      "スタッフID追加：" + staffResult.addedCount + "件\n" +
+      "利用者ID追加：" + userResult.addedCount + "件\n" +
+      "スタッフ利用者マスタID反映：" + relationResult.updatedCount + "件\n" +
+      "確認が必要：" + relationResult.skippedCount + "件"
+  };
+}
+
+function ensureStaffMasterIds_(ss) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  if (!sheet) return { addedCount: 0 };
+
+  ensureStaffMasterHeaders_(sheet);
+  const idCol = ensureHeaderColumn_(sheet, STAFF_ID_HEADER);
+  const cols = getStaffMasterColumnMap_(sheet);
+  return fillMissingEntityIds_(sheet, idCol, cols.name, "S");
+}
+
+function ensureUserMasterIds_(ss) {
+  const sheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+  if (!sheet) return { addedCount: 0 };
+
+  ensureUserMasterBaseColumns_(sheet);
+  const idCol = ensureHeaderColumn_(sheet, USER_ID_HEADER);
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
+  return fillMissingEntityIds_(sheet, idCol, nameCol, "U");
+}
+
+function fillMissingEntityIds_(sheet, idCol, nameCol, prefix) {
+  if (!sheet || sheet.getLastRow() < 2) return { addedCount: 0 };
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const existingIds = {};
+  let maxNumber = 0;
+  let addedCount = 0;
+
+  values.forEach(row => {
+    const currentId = String(row[idCol] || "").trim();
+    if (!currentId) return;
+    existingIds[currentId] = true;
+
+    const match = currentId.match(new RegExp("^" + prefix + "(\\d+)$"));
+    if (match) {
+      maxNumber = Math.max(maxNumber, Number(match[1]) || 0);
+    }
+  });
+
+  values.forEach((row, index) => {
+    const name = String(row[nameCol] || "").trim();
+    const currentId = String(row[idCol] || "").trim();
+    if (!name || currentId) return;
+
+    let nextId = "";
+    do {
+      maxNumber++;
+      nextId = prefix + String(maxNumber).padStart(3, "0");
+    } while (existingIds[nextId]);
+
+    existingIds[nextId] = true;
+    sheet.getRange(index + 2, idCol + 1).setValue(nextId);
+    addedCount++;
+  });
+
+  return { addedCount: addedCount };
+}
+
+function ensureStaffUserMasterIds_(ss) {
+  const sheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return { updatedCount: 0, skippedCount: 0 };
+
+  const staffIdMap = getMasterNameToIdMap_(ss, STAFF_SHEET_NAME, ["スタッフ名", "氏名"], STAFF_ID_HEADER);
+  const userIdMap = getMasterNameToIdMap_(ss, USER_MASTER_SHEET_NAME, ["利用者名", "氏名", "名前"], USER_ID_HEADER);
+  const staffIdCol = ensureHeaderColumn_(sheet, STAFF_ID_HEADER);
+  const userIdCol = ensureHeaderColumn_(sheet, USER_ID_HEADER);
+  const headerMap = getHeaderColumnMap_(sheet);
+  const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名", "氏名"], 0);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  values.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const staffName = String(row[staffNameCol] || "").trim();
+    const userName = String(row[userNameCol] || "").trim();
+    const staffId = staffIdMap[normalizeName_(staffName)] || "";
+    const userId = userIdMap[normalizeName_(userName)] || "";
+    let updated = false;
+
+    if (staffName && staffId && !String(row[staffIdCol] || "").trim()) {
+      sheet.getRange(rowNumber, staffIdCol + 1).setValue(staffId);
+      updated = true;
+    }
+
+    if (userName && userId && !String(row[userIdCol] || "").trim()) {
+      sheet.getRange(rowNumber, userIdCol + 1).setValue(userId);
+      updated = true;
+    }
+
+    if (updated) updatedCount++;
+    if ((staffName && !staffId) || (userName && !userId)) skippedCount++;
+  });
+
+  return {
+    updatedCount: updatedCount,
+    skippedCount: skippedCount
+  };
+}
+
+function getMasterNameToIdMap_(ss, sheetName, nameHeaders, idHeader) {
+  const sheet = ss.getSheetByName(sheetName);
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, nameHeaders, 0);
+  const idCol = getColumnIndex_(headerMap, [idHeader], -1);
+  if (idCol < 0) return map;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  values.forEach(row => {
+    const name = String(row[nameCol] || "").trim();
+    const id = String(row[idCol] || "").trim();
+    const key = normalizeName_(name);
+    if (key && id && !map[key]) map[key] = id;
+  });
+
+  return map;
+}
+
+function importUserQuestionnaireToUserMaster() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = importUserQuestionnaireToUserMasterCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function importUserQuestionnaireToUserMasterCore_(ss) {
+  const sourceSheet = getUserQuestionnaireSourceSheet_();
+  const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+
+  if (!userSheet) {
+    return {
+      success: false,
+      message: "利用者マスタシートがありません。"
+    };
+  }
+
+  if (!sourceSheet) {
+    return {
+      success: false,
+      message:
+        "利用者アンケートの集計スプレッドシートを開けませんでした。\n" +
+        "GAS実行アカウントに閲覧権限があるか確認してください。"
+    };
+  }
+
+  if (sourceSheet.getLastRow() < 2) {
+    return {
+      success: true,
+      addedCount: 0,
+      skippedCount: 0,
+      message: "取込対象の利用者アンケート回答はありません。"
+    };
+  }
+
+  ensureUserMasterBaseColumns_(userSheet);
+  const sourceValues = sourceSheet.getDataRange().getValues();
+  const sourceHeaderMap = getHeaderColumnMap_(sourceSheet);
+  const userHeaderMap = getHeaderColumnMap_(userSheet);
+  const nameCol = getColumnIndex_(userHeaderMap, ["利用者名", "氏名", "名前"], 0);
+  const existingUsers = getExistingUserNameMap_(userSheet, nameCol);
+  const rows = [];
+  const skipped = [];
+  let lineMatchedCount = 0;
+
+  for (let i = 1; i < sourceValues.length; i++) {
+    const sourceRow = sourceValues[i];
+    const userName = getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+      "利用者名",
+      "氏名",
+      "お名前",
+      "名前",
+      "フルネーム"
+    ], 1);
+
+    if (!userName) continue;
+
+    const userKey = normalizeName_(userName);
+    if (existingUsers[userKey]) {
+      skipped.push(userName);
+      continue;
+    }
+
+    const row = createBlankUserMasterRow_(userSheet);
+    const headerMap = getHeaderColumnMap_(userSheet);
+
+    setRowValueByHeaders_(row, headerMap, ["利用者名", "氏名", "名前"], userName, 0);
+    setRowValueByHeaders_(row, headerMap, ["住所", "ご住所"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["住所", "ご住所"], 2), -1);
+    setRowValueByHeaders_(row, headerMap, ["電話番号", "電話", "連絡先"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["電話番号", "電話", "連絡先"], 3), -1);
+    setRowValueByHeaders_(row, headerMap, ["病名もしくは症状", "病名・症状", "症状"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["病名もしくは症状", "病名・症状", "症状"], 4), -1);
+    setRowValueByHeaders_(row, headerMap, ["紹介者"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["紹介者"], 5), -1);
+    setRowValueByHeaders_(row, headerMap, ["その他", "備考"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["その他", "備考"], 6), -1);
+
+    const lineMatch = findLineUserDirectoryByDisplayName_(ss, userName);
+    if (lineMatch) {
+      setRowValueByHeaders_(row, headerMap, ["LINE表示名"], lineMatch.displayName, -1);
+      setRowValueByHeaders_(row, headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], lineMatch.messagingLineUserId, -1);
+      setRowValueByHeaders_(row, headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], lineMatch.liffLineUserId, -1);
+      lineMatchedCount++;
+    }
+
+    rows.push(row);
+    existingUsers[userKey] = true;
+  }
+
+  if (rows.length > 0) {
+    userSheet
+      .getRange(userSheet.getLastRow() + 1, 1, rows.length, rows[0].length)
+      .setValues(rows);
+  }
+
+  const idResult = ensureUserMasterIds_(ss);
+  updateLineUserDirectoryLinksWithoutAlert_(ss, ensureLineUserDirectorySheet_(ss));
+
+  return {
+    success: true,
+    addedCount: rows.length,
+    skippedCount: skipped.length,
+    lineMatchedCount: lineMatchedCount,
+    idAddedCount: idResult.addedCount,
+    message:
+      "利用者アンケートを利用者マスタへ取り込みました。\n" +
+      "追加：" + rows.length + "件\n" +
+      "既存のためスキップ：" + skipped.length + "件\n" +
+      "LINE情報を同時反映：" + lineMatchedCount + "件\n" +
+      "利用者ID追加：" + idResult.addedCount + "件"
+  };
+}
+
+function ensureUserMasterBaseColumns_(sheet) {
+  ensureAnyHeaderColumn_(sheet, ["利用者名", "氏名", "名前"], "利用者名");
+  ensureHeaderColumn_(sheet, "住所");
+  ensureHeaderColumn_(sheet, "電話番号");
+  ensureHeaderColumn_(sheet, "病名もしくは症状");
+  ensureHeaderColumn_(sheet, "紹介者");
+  ensureHeaderColumn_(sheet, "その他");
+  ensureUserMasterLineColumns_(sheet);
+  ensureHeaderColumn_(sheet, USER_ID_HEADER);
+}
+
+function ensureAnyHeaderColumn_(sheet, headerNames, defaultHeaderName) {
+  const headerMap = getHeaderColumnMap_(sheet);
+  const existingCol = getColumnIndex_(headerMap, headerNames, -1);
+  if (existingCol >= 0) return existingCol;
+  return ensureHeaderColumn_(sheet, defaultHeaderName);
+}
+
+function createBlankUserMasterRow_(sheet) {
+  return new Array(sheet.getLastColumn()).fill("");
+}
+
+function getExistingUserNameMap_(sheet, userNameCol) {
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  values.forEach(row => {
+    const userName = String(row[userNameCol] || "").trim();
+    if (userName) map[normalizeName_(userName)] = true;
+  });
+
+  return map;
+}
+
+function setRowValueByHeaders_(row, headerMap, headerNames, value, fallbackIndex) {
+  const col = getColumnIndex_(headerMap, headerNames, fallbackIndex);
+  if (col < 0 || col >= row.length) return;
+  row[col] = value || "";
+}
+
+function findLineUserDirectoryByDisplayName_(ss, displayName) {
+  const sheet = ss.getSheetByName(LINE_USER_DIRECTORY_SHEET_NAME);
+  const target = normalizeName_(displayName);
+  if (!sheet || !target || sheet.getLastRow() < 2) return null;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 13).getValues();
+  const matches = values
+    .map(row => ({
+      messagingLineUserId: String(row[2] || "").trim(),
+      liffLineUserId: String(row[3] || "").trim(),
+      displayName: String(row[4] || "").trim()
+    }))
+    .filter(row => normalizeName_(row.displayName) === target);
+
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function getUserQuestionnaireSourceSheet_() {
+  try {
+    const sourceSs = SpreadsheetApp.openById(USER_QUESTIONNAIRE_SPREADSHEET_ID);
+    const sheets = sourceSs.getSheets();
+
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getSheetId() === USER_QUESTIONNAIRE_SHEET_ID) {
+        return sheets[i];
+      }
+    }
+
+    return sheets[0] || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function setupAdminMaster() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ensureAdminMasterSheet_(ss);
+  SpreadsheetApp.getUi().alert(
+    "管理者マスタを設定しました。\n" +
+    "管理画面を使う人の LIFF用LINEユーザーID を登録してください。"
+  );
+}
+
+function ensureAdminMasterSheet_(ss) {
+  let sheet = ss.getSheetByName(ADMIN_MASTER_SHEET_NAME);
+  const headers = ["管理者名", "LINE表示名", "LIFF用LINEユーザーID", "メモ"];
+
+  if (!sheet) {
+    sheet = ss.insertSheet(ADMIN_MASTER_SHEET_NAME);
+  }
+
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  headers.forEach(header => ensureHeaderColumn_(sheet, header));
+  return sheet;
+}
+
+function isAdminLiffUser_(ss, lineUserId) {
+  const target = String(lineUserId || "").trim();
+  if (!target) return false;
+  if (ADMIN_LINE_USER_ID && ADMIN_LINE_USER_ID === target) return true;
+
+  const sheet = ss.getSheetByName(ADMIN_MASTER_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return false;
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const liffCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], 2);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  return values.some(row => String(row[liffCol] || "").trim() === target);
+}
+
+function adminDeniedResponse_(lineUserId) {
+  return {
+    success: false,
+    unauthorized: true,
+    lineUserId: lineUserId || "",
+    message:
+      "管理者として登録されていません。\n" +
+      "管理者マスタの「LIFF用LINEユーザーID」にこのIDを登録してください。\n" +
+      (lineUserId || "")
+  };
+}
+
+function getAdminDashboardForLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  saveLineUserDirectory_(ss, {
+    source: "管理画面LIFF",
+    liffLineUserId: lineUserId,
+    displayName: displayName,
+    checkedAt: new Date()
+  });
+
+  if (!isAdminLiffUser_(ss, lineUserId)) {
+    ensureAdminMasterSheet_(ss);
+    return adminDeniedResponse_(lineUserId);
+  }
+
+  const directorySheet = ensureLineUserDirectorySheet_(ss);
+  updateLineUserDirectoryLinksWithoutAlert_(ss, directorySheet);
+
+  const rows = directorySheet.getLastRow() < 2
+    ? []
+    : directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
+  const targets = rows
+    .filter(row => String(row[9] || "").indexOf("反映済み") === -1)
+    .slice(0, 50)
+    .map(row => ({
+      displayName: row[4] || "",
+      type: row[5] || "",
+      candidateName: row[6] || "",
+      status: row[9] || "",
+      source: row[10] || "",
+      note: row[12] || ""
+    }));
+
+  return {
+    success: true,
+    adminName: displayName || "",
+    lineUserId: lineUserId || "",
+    pendingCount: targets.length,
+    targets: targets,
+    message: targets.length ? "" : "確認が必要なLINEユーザーはありません。"
+  };
+}
+
+function adminSetupIdsFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return setupMasterIdColumnsCore_(ss);
+}
+
+function adminImportUserQuestionnaireFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return importUserQuestionnaireToUserMasterCore_(ss);
+}
+
+function adminApplyLineUsersFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return applyLineUserDirectoryToMastersCore_(ss);
+}
+
 /**
  * Googleフォームの回答シートから、スタッフマスタに必要な項目だけを追記する
  *
@@ -6297,6 +6794,8 @@ function onOpen() {
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
+    .addItem("📝 利用者アンケートを利用者マスタへ取込", "importUserQuestionnaireToUserMaster")
+    .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
     .addItem("💰 月末給与処理を実行", "runPayrollAll")
@@ -6304,6 +6803,7 @@ function onOpen() {
     .addSeparator()
     .addItem("👤 利用者マスタLINE列を設定", "setupUserMasterLineColumns")
     .addItem("👤 利用者状態列を設定", "setupUserStatusColumn")
+    .addItem("🔐 管理者マスタを設定", "setupAdminMaster")
     .addItem("🧾 スタッフアンケートをスタッフマスタへ取込", "importStaffQuestionnaireToStaffMaster")
     .addToUi();
 }

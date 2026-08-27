@@ -368,6 +368,53 @@
       font-size: 17px;
     }
 
+    .admin-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .admin-actions button {
+      padding: 12px;
+      border: 1px solid #c8d0d9;
+      background: #fff;
+      color: #1f2933;
+      font-weight: 800;
+    }
+
+    .admin-actions .primary {
+      border: 0;
+      background: #06c755;
+      color: #fff;
+    }
+
+    .admin-summary {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #1f2933;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+
+    .admin-target-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .admin-target {
+      padding: 10px;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      background: #fff;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -502,6 +549,16 @@
       <button id="registerOpenForm" class="submit" type="button" onclick="openRegistrationForm()" disabled>利用申請フォームへ進む</button>
     </div>
 
+    <div id="adminForm" class="hidden">
+      <div class="admin-actions">
+        <button class="primary" type="button" onclick="runAdminAction('adminImportUserQuestionnaire')">利用者アンケートを取り込む</button>
+        <button type="button" onclick="runAdminAction('adminApplyLineUsers')">LINEユーザー一覧をマスタへ反映</button>
+        <button type="button" onclick="runAdminAction('adminSetupIds')">スタッフID・利用者IDを整える</button>
+      </div>
+      <div id="adminSummary" class="admin-summary">管理情報を読み込み中...</div>
+      <div id="adminTargetList" class="admin-target-list"></div>
+    </div>
+
     <div id="message" class="message"></div>
   </div>
 
@@ -525,7 +582,7 @@
     const LIFF_ID = "2010856600-yxOaV2Np";
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
-    const appMode = requestedMode === "user" || requestedMode === "register" ? requestedMode : "staff";
+    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "admin" ? requestedMode : "staff";
 
     let lineUserId = "";
     let lineDisplayName = "";
@@ -584,6 +641,7 @@
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.remove("hidden");
       document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("adminForm").classList.add("hidden");
       document.getElementById("scheduleReload").innerText = "予約を更新";
       document.getElementById("scheduleReload").onclick = () => loadUserSchedules();
     }
@@ -597,7 +655,20 @@
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.add("hidden");
       document.getElementById("registerForm").classList.remove("hidden");
+      document.getElementById("adminForm").classList.add("hidden");
       document.getElementById("registerOpenForm").disabled = true;
+    }
+
+    function setupAdminModeView() {
+      document.getElementById("pageTitle").innerText = "管理";
+      document.getElementById("staff").innerText = "管理者情報を確認中...";
+      document.querySelector(".tabs").classList.add("hidden");
+      document.getElementById("userPicker").classList.add("hidden");
+      document.getElementById("visitForm").classList.add("hidden");
+      document.getElementById("scheduleForm").classList.add("hidden");
+      document.getElementById("manageForm").classList.add("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("adminForm").classList.remove("hidden");
     }
 
     function setDisabled(disabled) {
@@ -833,6 +904,78 @@
         return;
       }
       window.location.href = REGISTRATION_FORM_URL;
+    }
+
+    function loadAdminDashboard(silent) {
+      if (!lineUserId) return Promise.resolve();
+
+      const params = new URLSearchParams({
+        action: "getAdminDashboard",
+        lineUserId: lineUserId,
+        displayName: lineDisplayName || ""
+      });
+
+      if (!silent) setMessage("管理情報を読み込み中...");
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          renderAdminDashboard(data);
+          if (!silent) setMessage(data.message || "");
+          return data;
+        })
+        .catch(error => {
+          document.getElementById("adminSummary").innerText = "管理情報の取得に失敗しました。";
+          setMessage("管理情報の取得に失敗しました：" + error.message);
+        });
+    }
+
+    function renderAdminDashboard(data) {
+      const summary = document.getElementById("adminSummary");
+      const list = document.getElementById("adminTargetList");
+      list.innerHTML = "";
+
+      if (!data || !data.success) {
+        document.getElementById("staff").innerText = "管理者未登録";
+        summary.innerText = (data && data.message) || "管理画面を表示できません。";
+        return;
+      }
+
+      document.getElementById("staff").innerText =
+        "管理者：" + (lineDisplayName || "取得済み");
+      summary.innerText =
+        "確認が必要なLINEユーザー：" + (data.pendingCount || 0) + "件\n" +
+        "LIFF用LINEユーザーID：" + lineUserId;
+
+      (data.targets || []).forEach(item => {
+        const card = document.createElement("div");
+        card.className = "admin-target";
+        card.textContent =
+          "LINE表示名：" + (item.displayName || "未取得") + "\n" +
+          "候補：" + (item.type || "未判定") + " / " + (item.candidateName || "-") + "\n" +
+          "状態：" + (item.status || "-") + "\n" +
+          "取得元：" + (item.source || "-") +
+          (item.note ? "\nメモ：" + item.note : "");
+        list.appendChild(card);
+      });
+    }
+
+    function runAdminAction(action) {
+      if (!lineUserId) return;
+
+      const params = new URLSearchParams({
+        action: action,
+        lineUserId: lineUserId,
+        displayName: lineDisplayName || ""
+      });
+
+      setMessage("処理中...");
+
+      jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          setMessage(data.message || "");
+          return loadAdminDashboard(true);
+        })
+        .catch(error => setMessage("処理に失敗しました：" + error.message));
     }
 
     function renderScheduleList() {
@@ -1292,6 +1435,7 @@
     setDisabled(true);
     if (appMode === "user") setupUserModeView();
     if (appMode === "register") setupRegisterModeView();
+    if (appMode === "admin") setupAdminModeView();
 
     liff.init({ liffId: LIFF_ID })
       .then(() => {
@@ -1307,13 +1451,14 @@
         lineUserId = profile.userId;
         lineDisplayName = profile.displayName || "";
         document.getElementById("staff").innerText =
-          (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : "スタッフ情報") +
+          (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "admin" ? "管理者情報" : "スタッフ情報") +
           "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
         if (appMode === "user") return loadUserSchedules(true);
         if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
+        if (appMode === "admin") return loadAdminDashboard(true);
         return initApp(profile.displayName);
       })
-      .then(() => appMode === "user" || appMode === "register" ? null : loadSchedules(true))
+      .then(() => appMode === "user" || appMode === "register" || appMode === "admin" ? null : loadSchedules(true))
       .then(() => {
         if (appMode !== "register") setDisabled(false);
       })
