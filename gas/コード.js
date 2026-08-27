@@ -19,6 +19,7 @@ const USER_MASTER_SHEET_NAME = "利用者マスタ";
 const ADMIN_MASTER_SHEET_NAME = "管理者マスタ";
 const STAFF_ID_HEADER = "スタッフID";
 const USER_ID_HEADER = "利用者ID";
+const STAFF_BANK_REGISTRATION_STATUS_HEADER = "振込先登録状況";
 const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
 const PDF_EXPORT_WAIT_MS = 1000;
@@ -34,6 +35,7 @@ const LIFF_SCHEDULE_FUTURE_MONTHS = 6;
 // スタッフマスタ固定列
 // A:スタッフ名 B:LINE表示名 C:LINEユーザーID D:LIFF用LINEユーザーID E:カレンダーID
 // F:銀行コード G:支店番号 H:預金種目 I:口座番号 J:受取人名 K:給与明細フォルダID L:住所
+// 口座情報は初回スタッフ登録では取得せず、後から「振込先登録状況」で管理する
 const STAFF_COL_NAME = 0;
 const STAFF_COL_LINE_DISPLAY_NAME = 1;
 const STAFF_COL_LINE_USER_ID = 2;
@@ -1986,7 +1988,8 @@ function getStaffMasterColumnMap_(sheet) {
     accountNumber: getColumnIndex_(headerMap, ["口座番号"], STAFF_COL_ACCOUNT_NUMBER),
     receiverName: getColumnIndex_(headerMap, ["受取人名"], STAFF_COL_RECEIVER_NAME),
     payrollFolderId: getColumnIndex_(headerMap, ["給与明細フォルダID"], STAFF_COL_PAYROLL_FOLDER_ID),
-    address: getColumnIndex_(headerMap, ["住所"], STAFF_COL_ADDRESS)
+    address: getColumnIndex_(headerMap, ["住所"], STAFF_COL_ADDRESS),
+    bankRegistrationStatus: getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1)
   };
 }
 
@@ -3870,12 +3873,21 @@ function getStaffBankMap_(ss) {
       continue;
     }
 
+    const bankCode = String(values[i][cols.bankCode] || "").trim();
+    const branchCode = String(values[i][cols.branchCode] || "").trim();
+    const accountNumber = String(values[i][cols.accountNumber] || "").trim();
+    const receiverName = String(values[i][cols.receiverName] || "").trim();
+
+    if (!bankCode || !branchCode || !accountNumber || !receiverName) {
+      continue;
+    }
+
     map[staffKey] = {
-      bankCode: formatCode_(values[i][cols.bankCode], 4),
-      branchCode: formatCode_(values[i][cols.branchCode], 3),
-      accountType: values[i][cols.accountType],
-      accountNumber: formatCode_(values[i][cols.accountNumber], 7),
-      receiverName: values[i][cols.receiverName]
+      bankCode: formatCode_(bankCode, 4),
+      branchCode: formatCode_(branchCode, 3),
+      accountType: values[i][cols.accountType] || "1",
+      accountNumber: formatCode_(accountNumber, 7),
+      receiverName: receiverName
     };
   }
 
@@ -6335,12 +6347,14 @@ function runDataSetupAllCore_(ss) {
   messages.push(lineApplyResult.message);
 
   const secondIdResult = setupMasterIdColumnsCore_(ss);
+  const bankStatusResult = updateStaffBankRegistrationStatus_(ss);
   messages.push(
     "最終ID確認が完了しました。\n" +
     "スタッフID追加：" + secondIdResult.staffAddedCount + "件\n" +
     "利用者ID追加：" + secondIdResult.userAddedCount + "件\n" +
     "スタッフ利用者マスタID反映：" + secondIdResult.relationUpdatedCount + "件\n" +
-    "確認が必要：" + secondIdResult.relationSkippedCount + "件"
+    "確認が必要：" + secondIdResult.relationSkippedCount + "件\n" +
+    "振込先登録状況更新：" + bankStatusResult.updatedCount + "件"
   );
 
   updateLiffDisplayMaster(true);
@@ -7083,25 +7097,9 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
       "現住所",
       "ご住所"
     ], 4);
-    row[staffCols.bankCode] = getQuestionnaireBankCode_(sourceRow, sourceHeaderMap);
-    row[staffCols.branchCode] = formatCode_(getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-      "支店番号",
-      "支店コード",
-      "店番"
-    ], 13), 3);
-    row[staffCols.accountType] = getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-      "預金種目",
-      "口座種別"
-    ], -1) || "1";
-    row[staffCols.accountNumber] = formatCode_(getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-      "口座番号"
-    ], 14), 7);
-    row[staffCols.receiverName] = getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-      "受取人名",
-      "口座名義",
-      "口座名義人",
-      "振込名義"
-    ], -1);
+    if (staffCols.bankRegistrationStatus >= 0) {
+      row[staffCols.bankRegistrationStatus] = "未登録";
+    }
 
     rows.push(row);
     existingStaffs[staffKey] = true;
@@ -7125,7 +7123,8 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
       "取込元：" + sourceSheet.getParent().getName() + " / " + sourceSheet.getName() + "\n" +
       "追加：" + rows.length + "件\n" +
       "既存のためスキップ：" + skipped.length + "件\n" +
-      "スタッフID追加：" + idResult.addedCount + "件"
+      "スタッフID追加：" + idResult.addedCount + "件\n" +
+      "振込先情報：初回登録では取り込まず、必要時に別途登録します。"
   };
 }
 
@@ -7159,7 +7158,8 @@ function ensureStaffMasterHeaders_(sheet) {
     "口座番号",
     "受取人名",
     "給与明細フォルダID",
-    "住所"
+    "住所",
+    STAFF_BANK_REGISTRATION_STATUS_HEADER
   ];
 
   if (sheet.getLastRow() < 1) {
@@ -7191,8 +7191,51 @@ function getExistingStaffNameMap_(sheet, staffNameCol) {
 }
 
 function createBlankStaffMasterRow_(sheet) {
-  const length = Math.max(sheet.getLastColumn(), STAFF_COL_ADDRESS + 1);
+  const length = Math.max(sheet.getLastColumn(), STAFF_COL_ADDRESS + 2);
   return new Array(length).fill("");
+}
+
+function updateStaffBankRegistrationStatus_(ss) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return { updatedCount: 0 };
+
+  ensureStaffMasterHeaders_(sheet);
+
+  const cols = getStaffMasterColumnMap_(sheet);
+  const statusCol = cols.bankRegistrationStatus >= 0
+    ? cols.bankRegistrationStatus
+    : ensureHeaderColumn_(sheet, STAFF_BANK_REGISTRATION_STATUS_HEADER);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const statuses = [];
+  let updatedCount = 0;
+
+  values.forEach(row => {
+    const staffName = String(row[cols.name] || "").trim();
+    const currentStatus = String(row[statusCol] || "").trim();
+    const bankFields = [
+      String(row[cols.bankCode] || "").trim(),
+      String(row[cols.branchCode] || "").trim(),
+      String(row[cols.accountNumber] || "").trim(),
+      String(row[cols.receiverName] || "").trim()
+    ];
+    const filledCount = bankFields.filter(Boolean).length;
+    const nextStatus = !staffName
+      ? ""
+      : filledCount === bankFields.length
+        ? "登録済"
+        : filledCount > 0
+          ? "要確認"
+          : "未登録";
+
+    statuses.push([nextStatus]);
+    if (currentStatus !== nextStatus) updatedCount++;
+  });
+
+  if (statuses.length > 0) {
+    sheet.getRange(2, statusCol + 1, statuses.length, 1).setValues(statuses);
+  }
+
+  return { updatedCount: updatedCount };
 }
 
 function getQuestionnaireValue_(row, headerMap, headerNames, fallbackIndex) {
