@@ -6976,9 +6976,6 @@ function onOpen() {
     .addItem("💰 月末給与処理を実行", "runPayrollAll")
     .addItem("🎫 回数券を更新", "runCouponAll")
     .addSeparator()
-    .addItem("👤 利用者マスタLINE列を設定", "setupUserMasterLineColumns")
-    .addItem("👤 利用者状態列を設定", "setupUserStatusColumn")
-    .addItem("🔐 管理者マスタを設定", "setupAdminMaster")
     .addItem("🧾 スタッフアンケートをスタッフマスタへ取込", "importStaffQuestionnaireToStaffMaster")
     .addToUi();
 }
@@ -6986,6 +6983,9 @@ function onOpen() {
 function onOpenLegacyMenuReference_() {
   // 非表示にした旧メニュー項目の参照用。必要になれば onOpen に戻せます。
   return [
+    "setupUserMasterLineColumns",
+    "setupUserStatusColumn",
+    "setupAdminMaster",
     "addTestUserForAllStaff",
     "createWageLedger",
     "updateDistanceAndTravelCosts",
