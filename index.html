@@ -344,6 +344,30 @@
       white-space: pre-wrap;
     }
 
+    .register-form {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .register-card {
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      padding: 14px;
+      background: #f8fafc;
+      color: #1f2933;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.7;
+      white-space: pre-wrap;
+    }
+
+    .register-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 17px;
+    }
+
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -470,6 +494,14 @@
       <div id="scheduleList" class="schedule-list"></div>
     </div>
 
+    <div id="registerForm" class="register-form hidden">
+      <div class="register-card">
+        <strong>新規ご利用のお申し込み</strong>
+        LINE情報を確認してから、利用申請フォームへ進みます。
+      </div>
+      <button id="registerOpenForm" class="submit" type="button" onclick="openRegistrationForm()" disabled>利用申請フォームへ進む</button>
+    </div>
+
     <div id="message" class="message"></div>
   </div>
 
@@ -491,7 +523,9 @@
   <script>
     const GAS_URL = "https://script.google.com/macros/s/AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ/exec";
     const LIFF_ID = "2010856600-yxOaV2Np";
-    const appMode = new URLSearchParams(window.location.search).get("mode") === "user" ? "user" : "staff";
+    const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
+    const requestedMode = new URLSearchParams(window.location.search).get("mode");
+    const appMode = requestedMode === "user" || requestedMode === "register" ? requestedMode : "staff";
 
     let lineUserId = "";
     let lineDisplayName = "";
@@ -549,8 +583,21 @@
       document.getElementById("visitForm").classList.add("hidden");
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.remove("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
       document.getElementById("scheduleReload").innerText = "予約を更新";
       document.getElementById("scheduleReload").onclick = () => loadUserSchedules();
+    }
+
+    function setupRegisterModeView() {
+      document.getElementById("pageTitle").innerText = "新規ご利用登録";
+      document.getElementById("staff").innerText = "LINE情報を確認中...";
+      document.querySelector(".tabs").classList.add("hidden");
+      document.getElementById("userPicker").classList.add("hidden");
+      document.getElementById("visitForm").classList.add("hidden");
+      document.getElementById("scheduleForm").classList.add("hidden");
+      document.getElementById("manageForm").classList.add("hidden");
+      document.getElementById("registerForm").classList.remove("hidden");
+      document.getElementById("registerOpenForm").disabled = true;
     }
 
     function setDisabled(disabled) {
@@ -753,6 +800,39 @@
           renderUserScheduleList();
           setMessage("予約の取得に失敗しました：" + error.message);
         });
+    }
+
+    function logRegisterLiffLogin(displayName) {
+      const params = new URLSearchParams({
+        action: "logRegisterLiffLogin",
+        lineUserId: lineUserId,
+        displayName: displayName || ""
+      });
+
+      setMessage("LINE情報を保存しています...");
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          document.getElementById("staff").innerText =
+            "LINE表示名：" + (lineDisplayName || "取得済み");
+          document.getElementById("registerOpenForm").disabled = false;
+          setMessage(data.message || "LINE情報を保存しました。利用申請フォームへ進んでください。");
+          return data;
+        })
+        .catch(error => {
+          document.getElementById("staff").innerText =
+            "LINE情報の保存に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          setMessage("ログイン記録エラー：" + error.message);
+          throw error;
+        });
+    }
+
+    function openRegistrationForm() {
+      if (window.liff && liff.isInClient && liff.isInClient()) {
+        liff.openWindow({ url: REGISTRATION_FORM_URL, external: false });
+        return;
+      }
+      window.location.href = REGISTRATION_FORM_URL;
     }
 
     function renderScheduleList() {
@@ -1211,6 +1291,7 @@
     setToday();
     setDisabled(true);
     if (appMode === "user") setupUserModeView();
+    if (appMode === "register") setupRegisterModeView();
 
     liff.init({ liffId: LIFF_ID })
       .then(() => {
@@ -1226,13 +1307,16 @@
         lineUserId = profile.userId;
         lineDisplayName = profile.displayName || "";
         document.getElementById("staff").innerText =
-          (appMode === "user" ? "利用者情報" : "スタッフ情報") +
+          (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : "スタッフ情報") +
           "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
         if (appMode === "user") return loadUserSchedules(true);
+        if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
         return initApp(profile.displayName);
       })
-      .then(() => appMode === "user" ? null : loadSchedules(true))
-      .then(() => setDisabled(false))
+      .then(() => appMode === "user" || appMode === "register" ? null : loadSchedules(true))
+      .then(() => {
+        if (appMode !== "register") setDisabled(false);
+      })
       .catch(error => {
         setDisabled(true);
         setMessage("LIFF初期化エラー：" + error.message);
