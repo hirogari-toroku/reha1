@@ -15,6 +15,7 @@ const STAFF_QUESTIONNAIRE_SPREADSHEET_ID = "1sQzA9oHCMH712l8gNuoZxrB29eX_UeQg5zH
 const STAFF_QUESTIONNAIRE_SHEET_ID = 1876133724;
 const USER_QUESTIONNAIRE_SPREADSHEET_ID = "1y8h9EZG47uYVuoV3K1L_m9-JaDP8GRLQ6ZZ-HpgPxKM";
 const USER_QUESTIONNAIRE_SHEET_ID = 1702028371;
+const STAFF_REGISTER_LIFF_URL = "https://hirogari-toroku.github.io/reha1/?mode=staff-register";
 const USER_MASTER_SHEET_NAME = "利用者マスタ";
 const ADMIN_MASTER_SHEET_NAME = "管理者マスタ";
 const STAFF_ID_HEADER = "スタッフID";
@@ -131,6 +132,16 @@ function doPost(e) {
       userId,
       text
     );
+
+    if (String(text || "").trim() === "4") {
+      replyMessages.push({
+        replyToken,
+        userId,
+        staffName,
+        message: buildStaffRegistrationReplyMessage_(NL)
+      });
+      return;
+    }
 
     if (!isRegisteredStaff) {
       logStaffLookupFailure_(ss, userId, text);
@@ -321,6 +332,13 @@ function doGet(e) {
 
   if (action === "logRegisterLiffLogin") {
     return liffResponse_(e, logRegisterLiffLogin_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "logStaffRegisterLiffLogin") {
+    return liffResponse_(e, logStaffRegisterLiffLogin_(
       e.parameter.lineUserId,
       e.parameter.displayName
     ));
@@ -610,6 +628,57 @@ function logRegisterLiffLogin_(lineUserId, displayName) {
     displayName: displayName || "",
     message: "LINE情報を保存しました。続けて利用申請フォームへ進んでください。"
   };
+}
+
+function logStaffRegisterLiffLogin_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const match = findStaffDirectoryMatch_(ss, displayName, "");
+  const now = new Date();
+
+  saveLineUserDirectory_(ss, {
+    source: "スタッフ新規登録LIFF",
+    liffLineUserId: lineUserId,
+    displayName: displayName,
+    detectedStaffName: match ? match.name : "",
+    checkedAt: now,
+    lastMessage: "スタッフ登録フォームへ遷移"
+  });
+
+  saveLiffOperationLog_(
+    ss,
+    "logStaffRegisterLiffLogin",
+    lineUserId,
+    match ? match.name : "",
+    "",
+    "",
+    "",
+    "",
+    match ? "スタッフ候補あり" : "スタッフ新規登録",
+    match
+      ? "スタッフ登録LIFFを開きました。既存スタッフ候補：" + match.name
+      : "スタッフ登録LIFFを開きました。フォーム回答後にスタッフマスタへ登録してください。",
+    displayName
+  );
+
+  return {
+    success: true,
+    linked: !!match,
+    staffName: match ? match.name : "",
+    lineUserId: lineUserId || "",
+    displayName: displayName || "",
+    message: "LINE情報を保存しました。続けてスタッフ登録フォームへ進みます。"
+  };
+}
+
+function buildStaffRegistrationReplyMessage_(NL) {
+  return [
+    "リハビリスタッフ登録はこちらからお願いします。",
+    "",
+    "LINE連携確認のため、最初にLINEログイン画面が表示されます。",
+    "ログイン後、スタッフ登録フォームへ進みます。",
+    "",
+    STAFF_REGISTER_LIFF_URL
+  ].join(NL);
 }
 
 function saveUnregisteredLiffLogin_(ss, lineUserId, displayName, action) {
@@ -7062,13 +7131,18 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
   }
 
   ensureStaffMasterHeaders_(staffSheet);
+  ensureStaffMasterProfileColumns_(staffSheet);
 
   const sourceValues = sourceSheet.getDataRange().getValues();
   const sourceHeaderMap = getHeaderColumnMap_(sourceSheet);
   const staffCols = getStaffMasterColumnMap_(staffSheet);
-  const existingStaffs = getExistingStaffNameMap_(staffSheet, staffCols.name);
+  const staffHeaderMap = getHeaderColumnMap_(staffSheet);
+  const existingStaffs = getExistingStaffRowMap_(staffSheet, staffCols.name);
   const rows = [];
   const skipped = [];
+  let existingUpdatedCount = 0;
+  let profileUpdatedCount = 0;
+  let lineMatchedCount = 0;
 
   for (let i = 1; i < sourceValues.length; i++) {
     const sourceRow = sourceValues[i];
@@ -7083,8 +7157,21 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
     if (!staffName) continue;
 
     const staffKey = normalizeName_(staffName);
+    const lineMatch = findLineUserDirectoryByDisplayName_(ss, staffName);
 
     if (existingStaffs[staffKey]) {
+      const updateResult = updateExistingStaffFromQuestionnaire_(
+        staffSheet,
+        existingStaffs[staffKey].rowNumber,
+        staffHeaderMap,
+        staffCols,
+        sourceRow,
+        sourceHeaderMap,
+        lineMatch
+      );
+      if (updateResult.updated) existingUpdatedCount++;
+      profileUpdatedCount += updateResult.profileUpdatedCount;
+      if (updateResult.lineUpdated) lineMatchedCount++;
       skipped.push(staffName);
       continue;
     }
@@ -7092,11 +7179,13 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
     const row = createBlankStaffMasterRow_(staffSheet);
 
     row[staffCols.name] = staffName;
-    row[staffCols.address] = getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-      "住所",
-      "現住所",
-      "ご住所"
-    ], 4);
+    setStaffQuestionnaireValuesToRow_(row, staffHeaderMap, sourceRow, sourceHeaderMap);
+    if (lineMatch) {
+      setRowValueByHeaders_(row, staffHeaderMap, ["LINE表示名"], lineMatch.displayName, STAFF_COL_LINE_DISPLAY_NAME);
+      setRowValueByHeaders_(row, staffHeaderMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], lineMatch.messagingLineUserId, STAFF_COL_LINE_USER_ID);
+      setRowValueByHeaders_(row, staffHeaderMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], lineMatch.liffLineUserId, STAFF_COL_LIFF_LINE_USER_ID);
+      lineMatchedCount++;
+    }
     if (staffCols.bankRegistrationStatus >= 0) {
       row[staffCols.bankRegistrationStatus] = "未登録";
     }
@@ -7123,6 +7212,9 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
       "取込元：" + sourceSheet.getParent().getName() + " / " + sourceSheet.getName() + "\n" +
       "追加：" + rows.length + "件\n" +
       "既存のためスキップ：" + skipped.length + "件\n" +
+      "既存スタッフの補完：" + existingUpdatedCount + "件\n" +
+      "基本情報の補完：" + profileUpdatedCount + "項目\n" +
+      "LINE情報を同時反映：" + lineMatchedCount + "件\n" +
       "スタッフID追加：" + idResult.addedCount + "件\n" +
       "振込先情報：初回登録では取り込まず、必要時に別途登録します。"
   };
@@ -7174,6 +7266,145 @@ function ensureStaffMasterHeaders_(sheet) {
       sheet.getRange(1, index + 1).setValue(header);
     }
   });
+}
+
+function ensureStaffMasterProfileColumns_(sheet) {
+  [
+    "電話番号",
+    "メールアドレス",
+    "資格",
+    "資格取得年",
+    "関連資格",
+    "最終学歴",
+    "職歴",
+    "その他(希望等)",
+    "生年月日"
+  ].forEach(header => ensureHeaderColumn_(sheet, header));
+}
+
+function setStaffQuestionnaireValuesToRow_(row, headerMap, sourceRow, sourceHeaderMap) {
+  setRowValueByHeaders_(row, headerMap, ["住所"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "住所",
+    "現住所",
+    "ご住所"
+  ], 4), STAFF_COL_ADDRESS);
+  setRowValueByHeaders_(row, headerMap, ["電話番号"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "電話番号",
+    "電話",
+    "連絡先"
+  ], 2), -1);
+  setRowValueByHeaders_(row, headerMap, ["メールアドレス"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "メールアドレス",
+    "メール",
+    "Email"
+  ], 3), -1);
+  setRowValueByHeaders_(row, headerMap, ["資格"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["資格"], 5), -1);
+  setRowValueByHeaders_(row, headerMap, ["資格取得年"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "資格取得年",
+    "取得年"
+  ], 6), -1);
+  setRowValueByHeaders_(row, headerMap, ["関連資格"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "関連資格",
+    "保有資格"
+  ], 7), -1);
+  setRowValueByHeaders_(row, headerMap, ["最終学歴"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["最終学歴"], 8), -1);
+  setRowValueByHeaders_(row, headerMap, ["職歴"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["職歴"], 9), -1);
+  setRowValueByHeaders_(row, headerMap, ["その他(希望等)", "その他", "希望"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "その他(希望等)",
+    "その他",
+    "希望"
+  ], 10), -1);
+  setRowValueByHeaders_(row, headerMap, ["生年月日"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["生年月日"], 11), -1);
+}
+
+function updateExistingStaffFromQuestionnaire_(sheet, rowNumber, headerMap, staffCols, sourceRow, sourceHeaderMap, lineMatch) {
+  const row = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const updates = [];
+  const conflicts = [];
+  const profileUpdates = [];
+
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["住所"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "住所",
+    "現住所",
+    "ご住所"
+  ], 4));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["電話番号"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "電話番号",
+    "電話",
+    "連絡先"
+  ], 2));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["メールアドレス"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "メールアドレス",
+    "メール",
+    "Email"
+  ], 3));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["資格"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["資格"], 5));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["資格取得年"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "資格取得年",
+    "取得年"
+  ], 6));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["関連資格"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "関連資格",
+    "保有資格"
+  ], 7));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["最終学歴"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["最終学歴"], 8));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["職歴"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["職歴"], 9));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["その他(希望等)", "その他", "希望"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "その他(希望等)",
+    "その他",
+    "希望"
+  ], 10));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["生年月日"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["生年月日"], 11));
+
+  if (lineMatch) {
+    addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.lineDisplayName, lineMatch.displayName, "LINE表示名");
+    addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.lineUserId, lineMatch.messagingLineUserId, "LINEユーザーID");
+    addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.liffLineUserId, lineMatch.liffLineUserId, "LIFF用LINEユーザーID");
+  }
+
+  profileUpdates.concat(updates).forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+
+  return {
+    updated: profileUpdates.length + updates.length > 0,
+    profileUpdatedCount: profileUpdates.length,
+    lineUpdated: updates.length > 0
+  };
+}
+
+function addQuestionnaireCellUpdateIfEmpty_(updates, row, rowNumber, headerMap, headerNames, value) {
+  const nextValue = String(value || "").trim();
+  if (!nextValue) return;
+
+  const column = getColumnIndex_(headerMap, headerNames, -1);
+  if (column < 0) return;
+
+  const currentValue = String(row[column] || "").trim();
+  if (currentValue) return;
+
+  updates.push({
+    rowNumber: rowNumber,
+    column: column + 1,
+    value: nextValue
+  });
+}
+
+function getExistingStaffRowMap_(sheet, staffNameCol) {
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  values.forEach((row, index) => {
+    const staffName = String(row[staffNameCol] || "").trim();
+    if (staffName) {
+      map[normalizeName_(staffName)] = {
+        rowNumber: index + 2,
+        name: staffName
+      };
+    }
+  });
+
+  return map;
 }
 
 function getExistingStaffNameMap_(sheet, staffNameCol) {

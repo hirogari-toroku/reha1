@@ -656,7 +656,7 @@
     <div id="registerForm" class="register-form hidden">
       <div class="register-card">
         <strong>新規ご利用のお申し込み</strong>
-        LINE情報を確認してから、利用申請フォームへ進みます。
+        <span id="registerDescription">LINE情報を確認してから、利用申請フォームへ進みます。</span>
       </div>
       <button id="registerOpenForm" class="submit" type="button" onclick="openRegistrationForm()" disabled>利用申請フォームへ進む</button>
     </div>
@@ -703,8 +703,9 @@
     const GAS_URL = "https://script.google.com/macros/s/AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ/exec";
     const LIFF_ID = "2010856600-yxOaV2Np";
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
+    const STAFF_REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfTjEQpVCXOUO5igr02E5yn_QnbuIUY9KoXvb2_VyxjCcxmYA/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
-    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "admin" ? requestedMode : "staff";
+    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" ? requestedMode : "staff";
 
     let lineUserId = "";
     let lineDisplayName = "";
@@ -780,6 +781,25 @@
       document.getElementById("manageForm").classList.add("hidden");
       document.getElementById("registerForm").classList.remove("hidden");
       document.getElementById("adminForm").classList.add("hidden");
+      document.getElementById("registerOpenForm").disabled = true;
+      document.querySelector(".register-card strong").innerText = "新規ご利用のお申し込み";
+      document.getElementById("registerDescription").innerText = "LINE情報を確認してから、利用申請フォームへ進みます。";
+      document.getElementById("registerOpenForm").innerText = "利用申請フォームへ進む";
+    }
+
+    function setupStaffRegisterModeView() {
+      document.getElementById("pageTitle").innerText = "スタッフ新規登録";
+      document.getElementById("staff").innerText = "LINE情報を確認中...";
+      document.querySelector(".tabs").classList.add("hidden");
+      document.getElementById("userPicker").classList.add("hidden");
+      document.getElementById("visitForm").classList.add("hidden");
+      document.getElementById("scheduleForm").classList.add("hidden");
+      document.getElementById("manageForm").classList.add("hidden");
+      document.getElementById("registerForm").classList.remove("hidden");
+      document.getElementById("adminForm").classList.add("hidden");
+      document.querySelector(".register-card strong").innerText = "スタッフ登録";
+      document.getElementById("registerDescription").innerText = "LINE情報を確認してから、スタッフ登録フォームへ自動で進みます。";
+      document.getElementById("registerOpenForm").innerText = "スタッフ登録フォームへ進む";
       document.getElementById("registerOpenForm").disabled = true;
     }
 
@@ -1024,12 +1044,46 @@
         });
     }
 
+    function logStaffRegisterLiffLogin(displayName) {
+      const params = new URLSearchParams({
+        action: "logStaffRegisterLiffLogin",
+        lineUserId: lineUserId,
+        displayName: displayName || ""
+      });
+
+      setMessage("LINE情報を保存しています...");
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          document.getElementById("staff").innerText =
+            "LINE表示名：" + (lineDisplayName || "取得済み");
+          setMessage(data.message || "LINE情報を保存しました。スタッフ登録フォームへ移動します。");
+          setTimeout(openStaffRegistrationForm, 700);
+          return data;
+        })
+        .catch(error => {
+          document.getElementById("staff").innerText =
+            "LINE情報の保存に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          document.getElementById("registerOpenForm").disabled = false;
+          setMessage("ログイン記録エラー：" + error.message);
+          return { success: false, message: error.message };
+        });
+    }
+
     function openRegistrationForm() {
+      if (appMode === "staff-register") {
+        openStaffRegistrationForm();
+        return;
+      }
       if (window.liff && liff.isInClient && liff.isInClient()) {
         liff.openWindow({ url: REGISTRATION_FORM_URL, external: false });
         return;
       }
       window.location.href = REGISTRATION_FORM_URL;
+    }
+
+    function openStaffRegistrationForm() {
+      window.location.href = STAFF_REGISTRATION_FORM_URL;
     }
 
     function loadAdminDashboard(silent) {
@@ -1778,6 +1832,7 @@
     setDisabled(true);
     if (appMode === "user") setupUserModeView();
     if (appMode === "register") setupRegisterModeView();
+    if (appMode === "staff-register") setupStaffRegisterModeView();
     if (appMode === "admin") setupAdminModeView();
 
     liff.init({ liffId: LIFF_ID })
@@ -1794,16 +1849,17 @@
         lineUserId = profile.userId;
         lineDisplayName = profile.displayName || "";
         document.getElementById("staff").innerText =
-          (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "admin" ? "管理者情報" : "スタッフ情報") +
+          (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : "スタッフ情報") +
           "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
         if (appMode === "user") return loadUserSchedules(true);
         if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
+        if (appMode === "staff-register") return logStaffRegisterLiffLogin(profile.displayName);
         if (appMode === "admin") return loadAdminDashboard(true);
         return initApp(profile.displayName);
       })
-      .then(() => appMode === "user" || appMode === "register" || appMode === "admin" ? null : loadSchedules(true))
+      .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" ? null : loadSchedules(true))
       .then(() => {
-        if (appMode !== "register") setDisabled(false);
+        if (appMode !== "register" && appMode !== "staff-register") setDisabled(false);
       })
       .catch(error => {
         setDisabled(true);
