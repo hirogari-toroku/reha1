@@ -368,6 +368,58 @@
       font-size: 17px;
     }
 
+    .qr-panel {
+      display: grid;
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .qr-card {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      padding: 18px;
+      background: #fff;
+      color: #1f2933;
+      text-align: center;
+    }
+
+    .qr-card img {
+      width: min(78vw, 320px);
+      height: auto;
+      border: 1px solid #edf1f5;
+      border-radius: 8px;
+    }
+
+    .qr-card strong {
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .qr-card span {
+      font-size: 17px;
+      font-weight: 900;
+      color: #2563eb;
+    }
+
+    .qr-card p {
+      margin: 0;
+      color: #52606d;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+
+    .qr-download {
+      display: block;
+      box-sizing: border-box;
+      width: 100%;
+      text-align: center;
+      text-decoration: none;
+    }
+
     .admin-summary {
       margin-top: 12px;
       padding: 12px;
@@ -661,6 +713,16 @@
       <button id="registerOpenForm" class="submit" type="button" onclick="openRegistrationForm()" disabled>利用申請フォームへ進む</button>
     </div>
 
+    <div id="qrPanel" class="qr-panel hidden">
+      <div class="qr-card">
+        <img src="assets/hirogari-line-qr.png" alt="ひろがりLINE 友だち追加QRコード">
+        <strong>ひろがりLINE</strong>
+        <span>友だち追加QRコード</span>
+        <p>利用者さん・ご家族・紹介者の方にこの画面を見せて、ひろがり公式LINEを友だち追加してもらってください。</p>
+      </div>
+      <a class="secondary qr-download" href="assets/hirogari-line-qr.png" download>QR画像を保存</a>
+    </div>
+
     <div id="adminForm" class="hidden">
       <div id="adminSummary" class="admin-summary">管理情報を読み込み中...</div>
       <div class="admin-section-title">紐づけを追加</div>
@@ -705,7 +767,7 @@
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
     const STAFF_REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfTjEQpVCXOUO5igr02E5yn_QnbuIUY9KoXvb2_VyxjCcxmYA/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
-    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" ? requestedMode : "staff";
+    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" || requestedMode === "qr" ? requestedMode : "staff";
 
     let lineUserId = "";
     let lineDisplayName = "";
@@ -766,6 +828,7 @@
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.remove("hidden");
       document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("qrPanel").classList.add("hidden");
       document.getElementById("adminForm").classList.add("hidden");
       document.getElementById("scheduleReload").innerText = "予約を更新";
       document.getElementById("scheduleReload").onclick = () => loadUserSchedules();
@@ -780,6 +843,7 @@
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.add("hidden");
       document.getElementById("registerForm").classList.remove("hidden");
+      document.getElementById("qrPanel").classList.add("hidden");
       document.getElementById("adminForm").classList.add("hidden");
       document.getElementById("registerOpenForm").disabled = true;
       document.querySelector(".register-card strong").innerText = "新規ご利用のお申し込み";
@@ -796,6 +860,7 @@
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.add("hidden");
       document.getElementById("registerForm").classList.remove("hidden");
+      document.getElementById("qrPanel").classList.add("hidden");
       document.getElementById("adminForm").classList.add("hidden");
       document.querySelector(".register-card strong").innerText = "スタッフ登録";
       document.getElementById("registerDescription").innerText = "LINE情報を確認してから、スタッフ登録フォームへ自動で進みます。";
@@ -812,7 +877,22 @@
       document.getElementById("scheduleForm").classList.add("hidden");
       document.getElementById("manageForm").classList.add("hidden");
       document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("qrPanel").classList.add("hidden");
       document.getElementById("adminForm").classList.remove("hidden");
+    }
+
+    function setupQrModeView() {
+      document.getElementById("pageTitle").innerText = "ひろがりLINE";
+      document.getElementById("staff").innerText = "友だち追加QRコード";
+      document.querySelector(".tabs").classList.add("hidden");
+      document.getElementById("userPicker").classList.add("hidden");
+      document.getElementById("visitForm").classList.add("hidden");
+      document.getElementById("scheduleForm").classList.add("hidden");
+      document.getElementById("manageForm").classList.add("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("qrPanel").classList.remove("hidden");
+      document.getElementById("adminForm").classList.add("hidden");
+      setMessage("このQRコードから、ひろがり公式LINEを友だち追加できます。");
     }
 
     function setDisabled(disabled) {
@@ -1836,37 +1916,40 @@
     if (appMode === "register") setupRegisterModeView();
     if (appMode === "staff-register") setupStaffRegisterModeView();
     if (appMode === "admin") setupAdminModeView();
+    if (appMode === "qr") setupQrModeView();
 
-    liff.init({ liffId: LIFF_ID })
-      .then(() => {
-        if (!liff.isLoggedIn()) {
-          liff.login({ redirectUri: window.location.href });
-          return;
-        }
+    if (appMode !== "qr") {
+      liff.init({ liffId: LIFF_ID })
+        .then(() => {
+          if (!liff.isLoggedIn()) {
+            liff.login({ redirectUri: window.location.href });
+            return;
+          }
 
-        return liff.getProfile();
-      })
-      .then(profile => {
-        if (!profile) return;
-        lineUserId = profile.userId;
-        lineDisplayName = profile.displayName || "";
-        document.getElementById("staff").innerText =
-          (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : "スタッフ情報") +
-          "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
-        if (appMode === "user") return loadUserSchedules(true);
-        if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
-        if (appMode === "staff-register") return logStaffRegisterLiffLogin(profile.displayName);
-        if (appMode === "admin") return loadAdminDashboard(true);
-        return initApp(profile.displayName);
-      })
-      .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" ? null : loadSchedules(true))
-      .then(() => {
-        if (appMode !== "register" && appMode !== "staff-register") setDisabled(false);
-      })
-      .catch(error => {
-        setDisabled(true);
-        setMessage("LIFF初期化エラー：" + error.message);
-      });
+          return liff.getProfile();
+        })
+        .then(profile => {
+          if (!profile) return;
+          lineUserId = profile.userId;
+          lineDisplayName = profile.displayName || "";
+          document.getElementById("staff").innerText =
+            (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : "スタッフ情報") +
+            "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
+          if (appMode === "user") return loadUserSchedules(true);
+          if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
+          if (appMode === "staff-register") return logStaffRegisterLiffLogin(profile.displayName);
+          if (appMode === "admin") return loadAdminDashboard(true);
+          return initApp(profile.displayName);
+        })
+        .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" ? null : loadSchedules(true))
+        .then(() => {
+          if (appMode !== "register" && appMode !== "staff-register") setDisabled(false);
+        })
+        .catch(error => {
+          setDisabled(true);
+          setMessage("LIFF初期化エラー：" + error.message);
+        });
+    }
   </script>
 </body>
 </html>
