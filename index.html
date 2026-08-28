@@ -656,7 +656,7 @@
     <div id="registerForm" class="register-form hidden">
       <div class="register-card">
         <strong>新規ご利用のお申し込み</strong>
-        <span id="registerDescription">LINE情報を確認してから、利用申請フォームへ進みます。</span>
+        <span id="registerDescription">LINE情報を確認してから、利用申請フォームへ自動で進みます。</span>
       </div>
       <button id="registerOpenForm" class="submit" type="button" onclick="openRegistrationForm()" disabled>利用申請フォームへ進む</button>
     </div>
@@ -1033,14 +1033,16 @@
           document.getElementById("staff").innerText =
             "LINE表示名：" + (lineDisplayName || "取得済み");
           document.getElementById("registerOpenForm").disabled = false;
-          setMessage(data.message || "LINE情報を保存しました。利用申請フォームへ進んでください。");
+          setMessage(data.message || "LINE情報を保存しました。利用申請フォームへ移動します。");
+          setTimeout(openRegistrationForm, 700);
           return data;
         })
         .catch(error => {
           document.getElementById("staff").innerText =
             "LINE情報の保存に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+          document.getElementById("registerOpenForm").disabled = false;
           setMessage("ログイン記録エラー：" + error.message);
-          throw error;
+          return { success: false, message: error.message };
         });
     }
 

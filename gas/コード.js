@@ -15,7 +15,6 @@ const STAFF_QUESTIONNAIRE_SPREADSHEET_ID = "1sQzA9oHCMH712l8gNuoZxrB29eX_UeQg5zH
 const STAFF_QUESTIONNAIRE_SHEET_ID = 1876133724;
 const USER_QUESTIONNAIRE_SPREADSHEET_ID = "1y8h9EZG47uYVuoV3K1L_m9-JaDP8GRLQ6ZZ-HpgPxKM";
 const USER_QUESTIONNAIRE_SHEET_ID = 1702028371;
-const STAFF_REGISTER_LIFF_URL = "https://hirogari-toroku.github.io/reha1/?mode=staff-register";
 const USER_MASTER_SHEET_NAME = "利用者マスタ";
 const ADMIN_MASTER_SHEET_NAME = "管理者マスタ";
 const STAFF_ID_HEADER = "スタッフID";
@@ -133,13 +132,7 @@ function doPost(e) {
       text
     );
 
-    if (String(text || "").trim() === "4") {
-      replyMessages.push({
-        replyToken,
-        userId,
-        staffName,
-        message: buildStaffRegistrationReplyMessage_(NL)
-      });
+    if (/^[1-4]$/.test(String(text || "").trim())) {
       return;
     }
 
@@ -668,17 +661,6 @@ function logStaffRegisterLiffLogin_(lineUserId, displayName) {
     displayName: displayName || "",
     message: "LINE情報を保存しました。続けてスタッフ登録フォームへ進みます。"
   };
-}
-
-function buildStaffRegistrationReplyMessage_(NL) {
-  return [
-    "リハビリスタッフ登録はこちらからお願いします。",
-    "",
-    "LINE連携確認のため、最初にLINEログイン画面が表示されます。",
-    "ログイン後、スタッフ登録フォームへ進みます。",
-    "",
-    STAFF_REGISTER_LIFF_URL
-  ].join(NL);
 }
 
 function saveUnregisteredLiffLogin_(ss, lineUserId, displayName, action) {
