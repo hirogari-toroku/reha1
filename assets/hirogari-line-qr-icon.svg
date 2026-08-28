@@ -1,23 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800">
   <rect width="800" height="800" fill="#ffffff"/>
-  <g transform="translate(185 72)">
-    <rect x="18" y="18" width="394" height="394" rx="44" fill="none" stroke="#2563eb" stroke-width="34"/>
-    <rect x="72" y="72" width="92" height="92" rx="12" fill="#2563eb"/>
-    <rect x="266" y="72" width="92" height="92" rx="12" fill="#2563eb"/>
-    <rect x="72" y="266" width="92" height="92" rx="12" fill="#2563eb"/>
-    <rect x="198" y="196" width="42" height="42" rx="8" fill="#2563eb"/>
-    <rect x="266" y="196" width="92" height="42" rx="8" fill="#2563eb"/>
-    <rect x="198" y="266" width="42" height="92" rx="8" fill="#2563eb"/>
-    <rect x="266" y="294" width="42" height="64" rx="8" fill="#2563eb"/>
-    <rect x="326" y="266" width="32" height="32" rx="7" fill="#2563eb"/>
-  </g>
-  <g transform="translate(494 344)">
-    <circle cx="90" cy="90" r="84" fill="#06c755"/>
-    <path d="M41 91c0-27 22-49 49-49s49 20 49 46c0 29-25 51-56 51h-4l-31 18 9-26c-10-9-16-23-16-40z" fill="#ffffff"/>
-    <text x="90" y="102" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" fill="#06c755">LINE</text>
-    <circle cx="145" cy="145" r="35" fill="#ffffff"/>
-    <path d="M145 126v38M126 145h38" stroke="#2563eb" stroke-width="12" stroke-linecap="round"/>
-  </g>
-  <text x="400" y="625" text-anchor="middle" font-family="Hiragino Sans, Yu Gothic, Meiryo, sans-serif" font-size="78" font-weight="900" fill="#2563eb">ひろがりLINE</text>
-  <text x="400" y="704" text-anchor="middle" font-family="Hiragino Sans, Yu Gothic, Meiryo, sans-serif" font-size="46" font-weight="900" fill="#333333">友だち追加QRコード</text>
+  <image href="hirogari-line-qr.png" x="150" y="38" width="500" height="500" preserveAspectRatio="xMidYMid meet" style="image-rendering: pixelated;"/>
+  <text x="400" y="642" text-anchor="middle" font-family="Hiragino Sans, Yu Gothic, Meiryo, sans-serif" font-size="72" font-weight="900" fill="#2563eb">ひろがりLINE</text>
+  <text x="400" y="742" text-anchor="middle" font-family="Hiragino Sans, Yu Gothic, Meiryo, sans-serif" font-size="72" font-weight="900" fill="#2563eb">友だち追加QRコード</text>
 </svg>
