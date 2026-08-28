@@ -361,6 +361,13 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminRunDataSetupAll") {
+    return liffResponse_(e, adminRunDataSetupAllFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "adminImportUserQuestionnaire") {
     return liffResponse_(e, adminImportUserQuestionnaireFromLiff_(
       e.parameter.lineUserId,
@@ -7179,6 +7186,12 @@ function adminSetupIdsFromLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return setupMasterIdColumnsCore_(ss);
+}
+
+function adminRunDataSetupAllFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return runDataSetupAllCore_(ss);
 }
 
 function adminImportUserQuestionnaireFromLiff_(lineUserId, displayName) {

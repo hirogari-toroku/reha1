@@ -421,15 +421,62 @@
     }
 
     .admin-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+      color: #1f2933;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .admin-summary-card {
+      min-height: 70px;
+      padding: 12px;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .admin-summary-card strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    .admin-summary-card span {
+      display: block;
+      margin-top: 6px;
+      color: #52606d;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .admin-summary-card.warn {
+      border-color: #f8d778;
+      background: #fffaf0;
+    }
+
+    .admin-summary-card.danger {
+      border-color: #f3b4ad;
+      background: #fff7f7;
+    }
+
+    .admin-toolbox {
+      display: grid;
+      gap: 8px;
       margin-top: 12px;
       padding: 12px;
       border: 1px solid #dde3ea;
       border-radius: 8px;
       background: #f8fafc;
-      color: #1f2933;
-      font-size: 14px;
+    }
+
+    .admin-toolbox-note {
+      color: #52606d;
+      font-size: 13px;
+      font-weight: 700;
       line-height: 1.6;
-      white-space: pre-line;
     }
 
     .admin-section-title {
@@ -454,6 +501,17 @@
       background: #fff;
       font-size: 14px;
       line-height: 1.5;
+    }
+
+    .admin-relationship.issue,
+    .admin-target.issue {
+      border-color: #f3b4ad;
+      background: #fff7f7;
+    }
+
+    .admin-target.ready {
+      border-color: #f8d778;
+      background: #fffaf0;
     }
 
     .admin-link-editor {
@@ -574,7 +632,17 @@
     }
 
     @media (max-width: 720px) {
+      .admin-summary {
+        grid-template-columns: 1fr 1fr;
+      }
+
       .admin-link-editor {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .admin-summary {
         grid-template-columns: 1fr;
       }
     }
@@ -725,6 +793,18 @@
 
     <div id="adminForm" class="hidden">
       <div id="adminSummary" class="admin-summary">管理情報を読み込み中...</div>
+      <div class="admin-section-title">データ整備</div>
+      <div class="admin-toolbox">
+        <div class="admin-toolbox-note">
+          フォーム回答、LINE情報、ID列、LIFF表示用マスタをまとめて整えます。紐づけ確認の前に押すと、候補が最新になります。
+        </div>
+        <div class="admin-action-row">
+          <button type="button" onclick="runAdminAction('adminRunDataSetupAll')">一括実行</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminImportUserQuestionnaire')">利用者アンケート取込</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminApplyLineUsers')">LINE情報を反映</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminSetupIds')">ID列を整える</button>
+        </div>
+      </div>
       <div class="admin-section-title">紐づけを追加</div>
       <div class="admin-link-editor">
         <div class="admin-field">
@@ -1113,8 +1193,11 @@
           document.getElementById("staff").innerText =
             "LINE表示名：" + (lineDisplayName || "取得済み");
           document.getElementById("registerOpenForm").disabled = false;
-          setMessage(data.message || "LINE情報を保存しました。利用申請フォームへ移動します。");
-          setTimeout(openRegistrationForm, 700);
+          if (data && data.success === false) {
+            setMessage(data.message || "LINE情報の保存を確認できませんでした。");
+            return data;
+          }
+          scheduleRegistrationFormOpen(openRegistrationForm, data.message || "LINE情報を保存しました。利用申請フォームへ移動します。");
           return data;
         })
         .catch(error => {
@@ -1139,8 +1222,12 @@
         .then(data => {
           document.getElementById("staff").innerText =
             "LINE表示名：" + (lineDisplayName || "取得済み");
-          setMessage(data.message || "LINE情報を保存しました。スタッフ登録フォームへ移動します。");
-          setTimeout(openStaffRegistrationForm, 700);
+          document.getElementById("registerOpenForm").disabled = false;
+          if (data && data.success === false) {
+            setMessage(data.message || "LINE情報の保存を確認できませんでした。");
+            return data;
+          }
+          scheduleRegistrationFormOpen(openStaffRegistrationForm, data.message || "LINE情報を保存しました。スタッフ登録フォームへ移動します。");
           return data;
         })
         .catch(error => {
@@ -1162,6 +1249,18 @@
         return;
       }
       window.location.href = REGISTRATION_FORM_URL;
+    }
+
+    function scheduleRegistrationFormOpen(openFn, message) {
+      const storageKey = "reha1-registration-opened:" + appMode + ":" + lineUserId;
+      if (window.sessionStorage && sessionStorage.getItem(storageKey)) {
+        setMessage("LINE情報は保存済みです。フォームをもう一度開く場合は下のボタンを押してください。");
+        return;
+      }
+
+      if (window.sessionStorage) sessionStorage.setItem(storageKey, "1");
+      setMessage(message);
+      setTimeout(openFn, 700);
     }
 
     function openStaffRegistrationForm() {
@@ -1215,12 +1314,12 @@
 
       document.getElementById("staff").innerText =
         "管理者：" + (lineDisplayName || "取得済み");
-      summary.innerText =
-        "スタッフ利用者のつながり：" + (data.relationshipCount || 0) + "件\n" +
-        "確認が必要なつながり：" + (data.issueCount || 0) + "件\n" +
-        "未担当の利用者：" + ((data.unassignedUsers || []).length) + "件\n" +
-        "未紐づけLINE候補：" + (data.unlinkedCount || 0) + "件\n" +
-        "LIFF用LINEユーザーID：" + lineUserId;
+      renderAdminSummary(summary, [
+        { label: "紐づけ済み", value: data.relationshipCount || 0, kind: "" },
+        { label: "確認が必要", value: data.issueCount || 0, kind: (data.issueCount || 0) ? "danger" : "" },
+        { label: "未担当の利用者", value: (data.unassignedUsers || []).length, kind: (data.unassignedUsers || []).length ? "warn" : "" },
+        { label: "LINE候補", value: data.unlinkedCount || 0, kind: (data.unlinkedCount || 0) ? "warn" : "" }
+      ]);
 
       if (!(data.staffCards || []).length) {
         const empty = document.createElement("div");
@@ -1255,7 +1354,7 @@
 
         (staffCard.relationships || []).forEach(item => {
           const row = document.createElement("div");
-          row.className = "admin-relationship";
+          row.className = "admin-relationship" + (item.issueText ? " issue" : "");
 
           const header = document.createElement("div");
           header.className = "admin-relationship-header";
@@ -1341,12 +1440,16 @@
 
       const unassignedUsers = data.unassignedUsers || [];
       if (unassignedUsers.length) {
-        const title = document.createElement("div");
-        title.className = "admin-target";
-        title.textContent =
-          "未担当の利用者：" +
-          unassignedUsers.map(user => user.name).join("、");
-        list.appendChild(title);
+        unassignedUsers.forEach(user => {
+          const card = document.createElement("div");
+          card.className = "admin-target ready";
+          card.textContent =
+            "未担当の利用者：" + (user.name || "名前未設定") +
+            (user.id ? "\n利用者ID：" + user.id : "") +
+            (user.lineDisplayName ? "\nLINE表示名：" + user.lineDisplayName : "") +
+            "\n上の「紐づけを追加」から担当スタッフを選んでください。";
+          list.appendChild(card);
+        });
       }
 
       if (!(data.unlinkedLineUsers || []).length) {
@@ -1358,7 +1461,7 @@
 
       (data.unlinkedLineUsers || []).forEach(item => {
         const card = document.createElement("div");
-        card.className = "admin-target";
+        card.className = "admin-target" + (item.candidateName ? " ready" : " issue");
         card.textContent =
           "LINE表示名：" + (item.displayName || "未取得") + "\n" +
           "候補：" + (item.type || "未判定") + " / " + (item.candidateName || "-") + "\n" +
@@ -1366,6 +1469,21 @@
           "取得元：" + (item.source || "-") +
           (item.note ? "\nメモ：" + item.note : "");
         list.appendChild(card);
+      });
+    }
+
+    function renderAdminSummary(container, items) {
+      container.innerHTML = "";
+      items.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "admin-summary-card" + (item.kind ? " " + item.kind : "");
+        const value = document.createElement("strong");
+        value.textContent = item.value;
+        const label = document.createElement("span");
+        label.textContent = item.label;
+        card.appendChild(value);
+        card.appendChild(label);
+        container.appendChild(card);
       });
     }
 
