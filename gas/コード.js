@@ -23,9 +23,8 @@ const STAFF_ID_HEADER = "スタッフID";
 const USER_ID_HEADER = "利用者ID";
 const REFERRER_ID_HEADER = "紹介者ID";
 const STAFF_BANK_REGISTRATION_STATUS_HEADER = "振込先登録状況";
-const STAFF_FOLDER_ID_HEADER = "スタッフフォルダID";
-const STAFF_FOLDER_URL_HEADER = "スタッフフォルダURL";
-const STAFF_PAYSLIP_FOLDER_URL_HEADER = "給与明細フォルダURL";
+const LIFF_STAFF_FOLDER_LINK_HEADER = "スタッフフォルダリンク";
+const LIFF_PAYSLIP_FOLDER_LINK_HEADER = "給与明細リンク";
 const USER_CHART_URL_HEADER = "カルテURL";
 const USER_FOLDER_URL_HEADER = "利用者フォルダURL";
 const USER_BASIC_INFO_URL_HEADER = "基本情報URL";
@@ -41,7 +40,6 @@ const LIFF_INIT_CACHE_SECONDS = 1800;
 const LIFF_UNREGISTERED_CACHE_SECONDS = 30;
 const LIFF_SCHEDULE_LOOKBACK_MONTHS = 2;
 const LIFF_SCHEDULE_FUTURE_MONTHS = 6;
-const STAFF_ROOT_FOLDER_ID = PAYROLL_FOLDER_ID;
 
 // スタッフマスタ固定列
 // A:スタッフ名 B:LINE表示名 C:LINEユーザーID D:LIFF用LINEユーザーID E:カレンダーID
@@ -889,8 +887,8 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
   const lineUserIdCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID"], 0);
   const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名"], 1);
   const usersCol = getColumnIndex_(headerMap, ["利用者一覧"], 2);
-  const staffFolderUrlCol = getColumnIndex_(headerMap, [STAFF_FOLDER_URL_HEADER], -1);
-  const payslipFolderUrlCol = getColumnIndex_(headerMap, [STAFF_PAYSLIP_FOLDER_URL_HEADER], -1);
+  const staffFolderUrlCol = getColumnIndex_(headerMap, [LIFF_STAFF_FOLDER_LINK_HEADER, "スタッフフォルダURL"], -1);
+  const payslipFolderUrlCol = getColumnIndex_(headerMap, [LIFF_PAYSLIP_FOLDER_LINK_HEADER, "給与明細フォルダURL"], -1);
   const userLinksJsonCol = getColumnIndex_(headerMap, ["利用者リンクJSON"], -1);
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
 
@@ -2071,9 +2069,6 @@ function getStaffMasterColumnMap_(sheet) {
     accountNumber: getColumnIndex_(headerMap, ["口座番号"], STAFF_COL_ACCOUNT_NUMBER),
     receiverName: getColumnIndex_(headerMap, ["受取人名"], STAFF_COL_RECEIVER_NAME),
     payrollFolderId: getColumnIndex_(headerMap, ["給与明細フォルダID"], STAFF_COL_PAYROLL_FOLDER_ID),
-    staffFolderId: getColumnIndex_(headerMap, [STAFF_FOLDER_ID_HEADER], -1),
-    staffFolderUrl: getColumnIndex_(headerMap, [STAFF_FOLDER_URL_HEADER], -1),
-    payslipFolderUrl: getColumnIndex_(headerMap, [STAFF_PAYSLIP_FOLDER_URL_HEADER], -1),
     address: getColumnIndex_(headerMap, ["住所"], STAFF_COL_ADDRESS),
     bankRegistrationStatus: getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1)
   };
@@ -5812,8 +5807,8 @@ function updateLiffDisplayMaster(suppressAlert) {
     "LIFF用LINEユーザーID",
     "スタッフ名",
     "利用者一覧",
-    STAFF_FOLDER_URL_HEADER,
-    STAFF_PAYSLIP_FOLDER_URL_HEADER,
+    LIFF_STAFF_FOLDER_LINK_HEADER,
+    LIFF_PAYSLIP_FOLDER_LINK_HEADER,
     "利用者リンクJSON",
     "更新日時"
   ];
@@ -5983,13 +5978,21 @@ function getStaffResourceMap_(staffSheet) {
     const staffName = String(row[cols.name] || "").trim();
     if (!staffName) return;
 
+    const folderUrl = buildDriveFolderUrlFromId_(cols.payrollFolderId >= 0 ? row[cols.payrollFolderId] : "");
     map[normalizeName_(staffName)] = {
-      staffFolderUrl: cols.staffFolderUrl >= 0 ? normalizeResourceUrl_(row[cols.staffFolderUrl]) : "",
-      payslipFolderUrl: cols.payslipFolderUrl >= 0 ? normalizeResourceUrl_(row[cols.payslipFolderUrl]) : ""
+      staffFolderUrl: folderUrl,
+      payslipFolderUrl: folderUrl
     };
   });
 
   return map;
+}
+
+function buildDriveFolderUrlFromId_(folderIdOrUrl) {
+  const value = String(folderIdOrUrl || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return normalizeResourceUrl_(value);
+  return "https://drive.google.com/drive/folders/" + encodeURIComponent(value);
 }
 
 function getUserResourceMap_(ss) {
@@ -6570,7 +6573,7 @@ function runDataSetupAllCore_(ss) {
   const firstIdResult = setupMasterIdColumnsCore_(ss);
   messages.push(firstIdResult.message);
 
-  const staffImportResult = importStaffQuestionnaireToStaffMasterCore_(ss, true);
+  const staffImportResult = importStaffQuestionnaireToStaffMasterCore_(ss);
   messages.push(staffImportResult.message);
 
   const importResult = importUserQuestionnaireToUserMasterCore_(ss);
@@ -6586,7 +6589,6 @@ function runDataSetupAllCore_(ss) {
   const secondIdResult = setupMasterIdColumnsCore_(ss);
   const referralResult = syncReferralDataCore_(ss);
   const bankStatusResult = updateStaffBankRegistrationStatus_(ss);
-  const driveLinkResult = syncDriveLinksToMastersCore_(ss);
   messages.push(
     "最終ID確認が完了しました。\n" +
     "スタッフID追加：" + secondIdResult.staffAddedCount + "件\n" +
@@ -6598,10 +6600,7 @@ function runDataSetupAllCore_(ss) {
     "紹介者紐づけ更新：" + referralResult.userUpdatedCount + "件\n" +
     "紹介者確認が必要：" + referralResult.unmatchedCount + "件\n" +
     "振込先登録状況更新：" + bankStatusResult.updatedCount + "件\n" +
-    "スタッフフォルダ作成：" + driveLinkResult.staffFolderCreatedCount + "件\n" +
-    "給与年度フォルダ作成：" + driveLinkResult.payslipYearFolderCreatedCount + "件\n" +
-    "Driveリンク反映：" + driveLinkResult.linkUpdatedCount + "件\n" +
-    "カルテリンク反映：" + driveLinkResult.chartUpdatedCount + "件"
+    "フォルダ管理：既存の給与明細フォルダIDを保持（自動作成なし）"
   );
 
   updateLiffDisplayMaster(true);
@@ -7539,317 +7538,6 @@ function ensureStaffUserMasterSheet_(ss) {
   return sheet;
 }
 
-function syncDriveLinksToMasters() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const result = syncDriveLinksToMastersCore_(ss);
-
-  updateLiffDisplayMaster(true);
-  SpreadsheetApp.getUi().alert(result.message + "\n\nLIFF表示用マスタを更新しました。");
-}
-
-function syncDriveLinksToMastersCore_(ss) {
-  const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
-  const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
-
-  if (!staffSheet) {
-    return createDriveSyncResult_("スタッフマスタシートがありません。");
-  }
-
-  ensureStaffMasterHeaders_(staffSheet);
-  if (userSheet) ensureUserMasterBaseColumns_(userSheet);
-  const relationSheet = ensureStaffUserMasterSheet_(ss);
-  const staffCols = getStaffMasterColumnMap_(staffSheet);
-  const staffLastRow = staffSheet.getLastRow();
-
-  if (staffLastRow < 2) {
-    return createDriveSyncResult_("スタッフマスタに対象スタッフがありません。");
-  }
-
-  let staffRootFolder;
-  try {
-    staffRootFolder = DriveApp.getFolderById(STAFF_ROOT_FOLDER_ID);
-  } catch (error) {
-    return createDriveSyncResult_(
-      "スタッフフォルダの親フォルダを開けませんでした。\n" +
-      "GAS実行アカウントにDriveフォルダの権限があるか確認してください。\n" +
-      "詳細：" + error.message
-    );
-  }
-
-  const staffFolderIndex = buildChildFolderIndex_(staffRootFolder);
-  const currentYearFolderName = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy") + "年";
-  const staffValues = staffSheet
-    .getRange(2, 1, staffLastRow - 1, staffSheet.getLastColumn())
-    .getValues();
-  const staffFolderByName = {};
-  const result = {
-    success: true,
-    staffFolderCreatedCount: 0,
-    payslipYearFolderCreatedCount: 0,
-    linkUpdatedCount: 0,
-    chartUpdatedCount: 0,
-    message: ""
-  };
-
-  for (let i = 0; i < staffValues.length; i++) {
-    const row = staffValues[i];
-    const rowNumber = i + 2;
-    const staffName = String(row[staffCols.name] || "").trim();
-    if (!staffName) continue;
-
-    const staffFolder = resolveOrCreateStaffFolder_(
-      staffRootFolder,
-      staffFolderIndex,
-      staffName,
-      staffCols.staffFolderId >= 0 ? row[staffCols.staffFolderId] : "",
-      staffCols.staffFolderUrl >= 0 ? row[staffCols.staffFolderUrl] : ""
-    );
-
-    if (staffFolder.created) result.staffFolderCreatedCount++;
-
-    const payslipYearFolder = getOrCreateChildFolder_(staffFolder.folder, currentYearFolderName);
-    if (payslipYearFolder.created) result.payslipYearFolderCreatedCount++;
-
-    result.linkUpdatedCount += setStaffDriveFolderValues_(
-      staffSheet,
-      rowNumber,
-      staffCols,
-      staffFolder.folder,
-      payslipYearFolder.folder
-    );
-    staffFolderByName[normalizeName_(staffName)] = staffFolder.folder;
-  }
-
-  result.chartUpdatedCount = syncUserChartLinksFromStaffFolders_(
-    ss,
-    relationSheet,
-    userSheet,
-    staffFolderByName
-  );
-
-  result.message =
-    "Driveリンクをマスタへ反映しました。\n" +
-    "スタッフフォルダ作成：" + result.staffFolderCreatedCount + "件\n" +
-    "給与年度フォルダ作成：" + result.payslipYearFolderCreatedCount + "件\n" +
-    "スタッフ関連リンク更新：" + result.linkUpdatedCount + "件\n" +
-    "カルテリンク更新：" + result.chartUpdatedCount + "件";
-
-  return result;
-}
-
-function createDriveSyncResult_(message) {
-  return {
-    success: false,
-    staffFolderCreatedCount: 0,
-    payslipYearFolderCreatedCount: 0,
-    linkUpdatedCount: 0,
-    chartUpdatedCount: 0,
-    message: message
-  };
-}
-
-function buildChildFolderIndex_(parentFolder) {
-  const folders = parentFolder.getFolders();
-  const index = {
-    byId: {},
-    byName: {}
-  };
-
-  while (folders.hasNext()) {
-    const folder = folders.next();
-    index.byId[folder.getId()] = folder;
-    index.byName[normalizeName_(folder.getName())] = folder;
-  }
-
-  return index;
-}
-
-function resolveOrCreateStaffFolder_(rootFolder, folderIndex, staffName, existingFolderId, existingFolderUrl) {
-  const existingId = String(existingFolderId || "").trim() || extractDriveIdFromUrl_(existingFolderUrl);
-  let folder = existingId ? getDriveFolderByIdSafe_(existingId) : null;
-  const staffKey = normalizeName_(staffName);
-
-  if (!folder && folderIndex.byName[staffKey]) {
-    folder = folderIndex.byName[staffKey];
-  }
-
-  if (!folder) {
-    folder = rootFolder.createFolder(staffName);
-    folderIndex.byId[folder.getId()] = folder;
-    folderIndex.byName[staffKey] = folder;
-    return { folder: folder, created: true };
-  }
-
-  folderIndex.byId[folder.getId()] = folder;
-  folderIndex.byName[staffKey] = folder;
-  return { folder: folder, created: false };
-}
-
-function getDriveFolderByIdSafe_(folderId) {
-  const id = String(folderId || "").trim();
-  if (!id) return null;
-
-  try {
-    return DriveApp.getFolderById(id);
-  } catch (error) {
-    return null;
-  }
-}
-
-function getOrCreateChildFolder_(parentFolder, folderName) {
-  const folders = parentFolder.getFoldersByName(folderName);
-  if (folders.hasNext()) {
-    return { folder: folders.next(), created: false };
-  }
-
-  return { folder: parentFolder.createFolder(folderName), created: true };
-}
-
-function setStaffDriveFolderValues_(sheet, rowNumber, cols, staffFolder, payslipYearFolder) {
-  let updatedCount = 0;
-
-  updatedCount += setCellValueIfChanged_(sheet, rowNumber, cols.staffFolderId, staffFolder.getId());
-  updatedCount += setCellValueIfChanged_(sheet, rowNumber, cols.staffFolderUrl, staffFolder.getUrl());
-  updatedCount += setCellValueIfChanged_(sheet, rowNumber, cols.payrollFolderId, payslipYearFolder.getId());
-  updatedCount += setCellValueIfChanged_(sheet, rowNumber, cols.payslipFolderUrl, payslipYearFolder.getUrl());
-
-  return updatedCount;
-}
-
-function syncUserChartLinksFromStaffFolders_(ss, relationSheet, userSheet, staffFolderByName) {
-  if (!relationSheet || relationSheet.getLastRow() < 2) return 0;
-
-  const headerMap = getHeaderColumnMap_(relationSheet);
-  const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名", "氏名"], 0);
-  const userNameCol = getColumnIndex_(headerMap, ["利用者名", "利用者", "氏名"], 1);
-  const relationChartUrlCol = ensureHeaderColumn_(relationSheet, STAFF_USER_CHART_URL_HEADER);
-  const values = relationSheet
-    .getRange(2, 1, relationSheet.getLastRow() - 1, relationSheet.getLastColumn())
-    .getValues();
-  const userRowMap = userSheet ? getUserMasterRowMap_(userSheet) : {};
-  const userCols = userSheet ? getUserResourceColumnMap_(userSheet) : null;
-  let updatedCount = 0;
-
-  for (let i = 0; i < values.length; i++) {
-    const row = values[i];
-    const rowNumber = i + 2;
-    const staffName = String(row[staffNameCol] || "").trim();
-    const userName = String(row[userNameCol] || "").trim();
-    const staffFolder = staffFolderByName[normalizeName_(staffName)];
-
-    if (!staffFolder || !userName || normalizeName_(userName) === normalizeName_(TEST_USER_NAME)) continue;
-
-    const userFolder = findChildFolderByNormalizedName_(staffFolder, userName);
-    if (!userFolder) continue;
-
-    const chartUrl = findChartUrlInUserFolder_(userFolder);
-    const relationChartUrl = relationChartUrlCol >= 0 ? row[relationChartUrlCol] : "";
-
-    if (chartUrl && !normalizeResourceUrl_(relationChartUrl)) {
-      updatedCount += setCellValueIfChanged_(relationSheet, rowNumber, relationChartUrlCol, chartUrl);
-    }
-
-    if (userSheet && userRowMap[normalizeName_(userName)]) {
-      const userRowNumber = userRowMap[normalizeName_(userName)];
-      updatedCount += setCellValueIfBlank_(userSheet, userRowNumber, userCols.userFolderUrl, userFolder.getUrl());
-      if (chartUrl) {
-        updatedCount += setCellValueIfBlank_(userSheet, userRowNumber, userCols.chartUrl, chartUrl);
-      }
-    }
-  }
-
-  return updatedCount;
-}
-
-function getUserMasterRowMap_(sheet) {
-  if (!sheet || sheet.getLastRow() < 2) return {};
-
-  const headerMap = getHeaderColumnMap_(sheet);
-  const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
-  const map = {};
-
-  values.forEach((row, index) => {
-    const name = String(row[nameCol] || "").trim();
-    if (name) map[normalizeName_(name)] = index + 2;
-  });
-
-  return map;
-}
-
-function getUserResourceColumnMap_(sheet) {
-  ensureUserMasterBaseColumns_(sheet);
-  const headerMap = getHeaderColumnMap_(sheet);
-
-  return {
-    chartUrl: getColumnIndex_(headerMap, [USER_CHART_URL_HEADER], -1),
-    userFolderUrl: getColumnIndex_(headerMap, [USER_FOLDER_URL_HEADER], -1),
-    basicInfoUrl: getColumnIndex_(headerMap, [USER_BASIC_INFO_URL_HEADER], -1)
-  };
-}
-
-function findChildFolderByNormalizedName_(parentFolder, folderName) {
-  const targetKey = normalizeName_(folderName);
-  if (!targetKey) return null;
-
-  const folders = parentFolder.getFolders();
-  while (folders.hasNext()) {
-    const folder = folders.next();
-    if (normalizeName_(folder.getName()) === targetKey) return folder;
-  }
-
-  return null;
-}
-
-function findChartUrlInUserFolder_(userFolder) {
-  const files = userFolder.getFiles();
-  let fallbackUrl = "";
-
-  while (files.hasNext()) {
-    const file = files.next();
-    const name = String(file.getName() || "");
-    const isGoogleDoc = file.getMimeType() === "application/vnd.google-apps.document";
-
-    if (!isGoogleDoc) continue;
-    if (!fallbackUrl) fallbackUrl = file.getUrl();
-    if (name.indexOf("カルテ") >= 0) return file.getUrl();
-  }
-
-  return fallbackUrl;
-}
-
-function setCellValueIfChanged_(sheet, rowNumber, zeroBasedColumn, value) {
-  if (zeroBasedColumn < 0) return 0;
-
-  const range = sheet.getRange(rowNumber, zeroBasedColumn + 1);
-  const current = String(range.getValue() || "").trim();
-  const next = String(value || "").trim();
-
-  if (current === next) return 0;
-  range.setValue(next);
-  return 1;
-}
-
-function setCellValueIfBlank_(sheet, rowNumber, zeroBasedColumn, value) {
-  if (zeroBasedColumn < 0) return 0;
-
-  const range = sheet.getRange(rowNumber, zeroBasedColumn + 1);
-  const current = String(range.getValue() || "").trim();
-
-  if (current) return 0;
-  range.setValue(value || "");
-  return value ? 1 : 0;
-}
-
-function extractDriveIdFromUrl_(url) {
-  const text = String(url || "").trim();
-  const match = text.match(/\/folders\/([a-zA-Z0-9_-]+)/) ||
-    text.match(/[?&]id=([a-zA-Z0-9_-]+)/) ||
-    text.match(/\/d\/([a-zA-Z0-9_-]+)/);
-
-  return match ? match[1] : "";
-}
-
 /**
  * Googleフォームの回答シートから、スタッフマスタに必要な項目だけを追記する
  *
@@ -7861,11 +7549,11 @@ function extractDriveIdFromUrl_(url) {
  */
 function importStaffQuestionnaireToStaffMaster() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const result = importStaffQuestionnaireToStaffMasterCore_(ss, false);
+  const result = importStaffQuestionnaireToStaffMasterCore_(ss);
   SpreadsheetApp.getUi().alert(result.message);
 }
 
-function importStaffQuestionnaireToStaffMasterCore_(ss, skipDriveSync) {
+function importStaffQuestionnaireToStaffMasterCore_(ss) {
   const sourceSheet = getStaffQuestionnaireSourceSheet_();
   const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
 
@@ -7969,19 +7657,12 @@ function importStaffQuestionnaireToStaffMasterCore_(ss, skipDriveSync) {
   }
 
   const idResult = ensureStaffMasterIds_(ss);
-  let driveLinkResult = null;
-
-  if (!skipDriveSync) {
-    driveLinkResult = syncDriveLinksToMastersCore_(ss);
-    updateLiffDisplayMaster(true);
-  }
 
   return {
     success: true,
     addedCount: rows.length,
     skippedCount: skipped.length,
     idAddedCount: idResult.addedCount,
-    driveLinkResult: driveLinkResult,
     message:
       "スタッフアンケートをスタッフマスタへ取り込みました。\n" +
       "取込元：" + sourceSheet.getParent().getName() + " / " + sourceSheet.getName() + "\n" +
@@ -7991,10 +7672,8 @@ function importStaffQuestionnaireToStaffMasterCore_(ss, skipDriveSync) {
       "基本情報の補完：" + profileUpdatedCount + "項目\n" +
       "LINE情報を同時反映：" + lineMatchedCount + "件\n" +
       "スタッフID追加：" + idResult.addedCount + "件\n" +
-      "振込先情報：初回登録では取り込まず、必要時に別途登録します。" +
-      (driveLinkResult
-        ? "\n\n" + driveLinkResult.message + "\nLIFF表示用マスタを更新しました。"
-        : "")
+      "振込先情報：初回登録では取り込まず、必要時に別途登録します。\n" +
+      "フォルダ管理：既存の給与明細フォルダIDを保持し、自動作成・自動書き換えは行いません。"
   };
 }
 
@@ -8044,10 +7723,6 @@ function ensureStaffMasterHeaders_(sheet) {
       sheet.getRange(1, index + 1).setValue(header);
     }
   });
-
-  ensureHeaderColumn_(sheet, STAFF_FOLDER_ID_HEADER);
-  ensureHeaderColumn_(sheet, STAFF_FOLDER_URL_HEADER);
-  ensureHeaderColumn_(sheet, STAFF_PAYSLIP_FOLDER_URL_HEADER);
 }
 
 function ensureStaffMasterProfileColumns_(sheet) {
@@ -8308,7 +7983,6 @@ function onOpen() {
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
     .addItem("📝 利用者アンケートを利用者マスタへ取込", "importUserQuestionnaireToUserMaster")
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
-    .addItem("📁 Driveリンクをマスタへ反映", "syncDriveLinksToMasters")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
     .addItem("💰 月末給与処理を実行", "runPayrollAll")
