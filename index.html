@@ -514,6 +514,28 @@
       line-height: 1.6;
     }
 
+    .admin-preview-result {
+      display: grid;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .admin-preview-result:empty {
+      display: none;
+    }
+
+    .admin-preview-heading {
+      color: #1f2933;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .admin-preview-actions button {
+      cursor: default;
+      opacity: 0.72;
+      pointer-events: none;
+    }
+
     .admin-section-title {
       margin: 18px 0 8px;
       color: #1f2933;
@@ -840,6 +862,31 @@
           <button type="button" class="secondary" onclick="runAdminAction('adminApplyLineUsers')">LINE情報を反映</button>
           <button type="button" class="secondary" onclick="runAdminAction('adminSetupIds')">ID列を整える</button>
         </div>
+      </div>
+      <div class="admin-section-title">代理表示テスト</div>
+      <div class="admin-toolbox">
+        <div class="admin-toolbox-note">
+          管理者の画面から、選んだスタッフ・利用者でログインした時の予定表示を確認します。表示確認専用のため、開始・終了・変更・キャンセルは実行されません。
+        </div>
+        <div class="admin-link-editor">
+          <div class="admin-field">
+            <label for="adminPreviewType">表示する画面</label>
+            <select id="adminPreviewType" onchange="handleAdminPreviewTypeChange()">
+              <option value="staff">スタッフ画面</option>
+              <option value="user">利用者画面</option>
+            </select>
+          </div>
+          <div class="admin-field" id="adminPreviewStaffField">
+            <label for="adminPreviewStaff">スタッフ</label>
+            <select id="adminPreviewStaff"></select>
+          </div>
+          <div class="admin-field hidden" id="adminPreviewUserField">
+            <label for="adminPreviewUser">利用者</label>
+            <select id="adminPreviewUser"></select>
+          </div>
+          <button type="button" onclick="loadAdminPreviewSchedules()">選んだ画面を見る</button>
+        </div>
+        <div id="adminPreviewResult" class="admin-preview-result"></div>
       </div>
       <div class="admin-section-title">紐づけを追加</div>
       <div class="admin-link-editor">
@@ -1421,14 +1468,20 @@
       const list = document.getElementById("adminTargetList");
       const addStaff = document.getElementById("adminAddStaff");
       const addUser = document.getElementById("adminAddUser");
+      const previewStaff = document.getElementById("adminPreviewStaff");
+      const previewUser = document.getElementById("adminPreviewUser");
+      const previewResult = document.getElementById("adminPreviewResult");
       relationshipList.innerHTML = "";
       list.innerHTML = "";
+      if (previewResult) previewResult.innerHTML = "";
 
       if (!data || !data.success) {
         document.getElementById("staff").innerText = "管理者未登録";
         summary.innerText = (data && data.message) || "管理画面を表示できません。";
         fillAdminSelect(addStaff, [], "", "スタッフを選択");
         fillAdminSelect(addUser, [], "", "利用者を選択");
+        fillAdminSelect(previewStaff, [], "", "スタッフを選択");
+        fillAdminSelect(previewUser, [], "", "利用者を選択");
         return;
       }
 
@@ -1436,6 +1489,9 @@
       adminUserOptions = data.users || [];
       fillAdminSelect(addStaff, adminStaffOptions, "", "スタッフを選択");
       fillAdminSelect(addUser, adminUserOptions, "", "利用者を選択");
+      fillAdminSelect(previewStaff, adminStaffOptions, previewStaff ? previewStaff.value : "", "スタッフを選択");
+      fillAdminSelect(previewUser, adminUserOptions, previewUser ? previewUser.value : "", "利用者を選択");
+      handleAdminPreviewTypeChange();
 
       document.getElementById("staff").innerText =
         "管理者：" + (lineDisplayName || "取得済み");
@@ -1629,6 +1685,138 @@
           (item.status ? "（" + item.status + "）" : "");
         if (String(item.id || "") === String(selectedId || "")) option.selected = true;
         select.appendChild(option);
+      });
+    }
+
+    function handleAdminPreviewTypeChange() {
+      const typeSelect = document.getElementById("adminPreviewType");
+      const type = typeSelect ? typeSelect.value : "staff";
+      const staffField = document.getElementById("adminPreviewStaffField");
+      const userField = document.getElementById("adminPreviewUserField");
+      if (staffField) staffField.classList.toggle("hidden", type !== "staff");
+      if (userField) userField.classList.toggle("hidden", type !== "user");
+    }
+
+    function loadAdminPreviewSchedules() {
+      if (!lineUserId) return;
+      const typeSelect = document.getElementById("adminPreviewType");
+      const type = typeSelect ? typeSelect.value : "staff";
+      const targetSelect = document.getElementById(type === "user" ? "adminPreviewUser" : "adminPreviewStaff");
+      const targetId = targetSelect ? targetSelect.value : "";
+      const result = document.getElementById("adminPreviewResult");
+
+      if (!targetId) {
+        setMessage(type === "user" ? "利用者を選択してください。" : "スタッフを選択してください。");
+        return;
+      }
+
+      if (result) result.textContent = "代理表示を読み込み中...";
+
+      const params = new URLSearchParams({
+        action: "adminPreviewSchedules",
+        lineUserId: lineUserId,
+        displayName: lineDisplayName || "",
+        targetType: type,
+        targetId: targetId
+      });
+
+      jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          renderAdminPreview(data);
+          setMessage(data.message || "");
+        })
+        .catch(error => {
+          if (result) result.textContent = "代理表示の取得に失敗しました。";
+          setMessage("代理表示の取得に失敗しました：" + error.message);
+        });
+    }
+
+    function renderAdminPreview(data) {
+      const result = document.getElementById("adminPreviewResult");
+      if (!result) return;
+      result.innerHTML = "";
+
+      if (!data || !data.success) {
+        result.textContent = (data && data.message) || "代理表示を取得できませんでした。";
+        return;
+      }
+
+      const screenName = data.targetType === "user" ? "利用者画面" : "スタッフ画面";
+      const heading = document.createElement("div");
+      heading.className = "admin-preview-heading";
+      heading.textContent = "代理表示：" + (data.targetName || "対象未設定") + "（" + screenName + "）";
+      result.appendChild(heading);
+
+      const note = document.createElement("div");
+      note.className = "admin-toolbox-note";
+      note.textContent = data.targetType === "staff"
+        ? "開始・終了・変更・キャンセルは確認用の表示です。この画面からは実行されません。"
+        : "利用者に表示される予約確認画面の確認です。";
+      result.appendChild(note);
+
+      const schedules = data.schedules || [];
+      if (!schedules.length) {
+        const empty = document.createElement("div");
+        empty.className = "schedule-card";
+        empty.textContent = "対象期間内の予定はありません。";
+        result.appendChild(empty);
+        return;
+      }
+
+      schedules.forEach(item => {
+        const displayStatus = !item.status || item.status === "予定"
+          ? (data.targetType === "user" ? "予約あり" : "未開始")
+          : item.status;
+        const card = document.createElement("div");
+        card.className = "schedule-card";
+
+        const title = document.createElement("div");
+        title.className = "schedule-card-title";
+
+        const name = document.createElement("span");
+        name.textContent = data.targetType === "user"
+          ? (item.visitDate || "")
+          : (item.visitDate || "") + "　" + (item.userName || "");
+
+        const status = document.createElement("span");
+        status.className = "status-pill";
+        status.textContent = displayStatus;
+        if (displayStatus === "訪問中") status.classList.add("active");
+        if (displayStatus === "完了") status.classList.add("done");
+        if (displayStatus === "開始のみ") status.classList.add("partial");
+
+        title.appendChild(name);
+        title.appendChild(status);
+        card.appendChild(title);
+
+        const metaParts = [];
+        if (data.targetType === "user" && item.staffName) metaParts.push("担当：" + item.staffName);
+        if (item.lastVisitText) metaParts.push(item.lastVisitText);
+        if (item.updatedAt) metaParts.push("更新：" + item.updatedAt);
+        if (metaParts.length) {
+          const meta = document.createElement("div");
+          meta.className = "schedule-card-meta";
+          meta.textContent = metaParts.join(" / ");
+          card.appendChild(meta);
+        }
+
+        if (data.targetType === "staff") {
+          appendUserResourceLinks(card, item);
+          const actions = document.createElement("div");
+          actions.className = "schedule-card-actions admin-preview-actions";
+          ["開始", "終了", "変更", "キャンセル"].forEach(label => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.disabled = true;
+            button.textContent = label;
+            if (label === "開始" || label === "終了") button.className = "primary";
+            if (label === "キャンセル") button.className = "danger";
+            actions.appendChild(button);
+          });
+          card.appendChild(actions);
+        }
+
+        result.appendChild(card);
       });
     }
 

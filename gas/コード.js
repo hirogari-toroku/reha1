@@ -360,6 +360,15 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminPreviewSchedules") {
+    return liffResponse_(e, adminPreviewSchedulesFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName,
+      e.parameter.targetType,
+      e.parameter.targetId
+    ));
+  }
+
   if (action === "adminSetupIds") {
     return liffResponse_(e, adminSetupIdsFromLiff_(
       e.parameter.lineUserId,
@@ -7255,6 +7264,70 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
     issues: relationshipData.issues,
     unlinkedLineUsers: unlinkedLineUsers,
     message: ""
+  };
+}
+
+function adminPreviewSchedulesFromLiff_(lineUserId, displayName, targetType, targetId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  saveLineUserDirectory_(ss, {
+    source: "管理画面LIFF",
+    liffLineUserId: lineUserId,
+    displayName: displayName,
+    checkedAt: new Date()
+  });
+
+  if (!isAdminLiffUser_(ss, lineUserId)) {
+    ensureAdminMasterSheet_(ss);
+    return adminDeniedResponse_(lineUserId);
+  }
+
+  const normalizedType = String(targetType || "").trim();
+  const normalizedId = String(targetId || "").trim();
+  if (normalizedType !== "staff" && normalizedType !== "user") {
+    return {
+      success: false,
+      message: "表示する画面を選択してください。"
+    };
+  }
+  if (!normalizedId) {
+    return {
+      success: false,
+      message: "表示する対象を選択してください。"
+    };
+  }
+
+  const targetMap = normalizedType === "staff" ? getAdminStaffMap_(ss) : getAdminUserMap_(ss);
+  const target = targetMap.byId[normalizedId];
+  if (!target || !target.name) {
+    return {
+      success: false,
+      message: "対象が見つかりません。データ整備を実行してから再度お試しください。"
+    };
+  }
+
+  const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!scheduleSheet) {
+    return {
+      success: false,
+      message: "訪問予定シートが見つかりません。"
+    };
+  }
+
+  ensureScheduleStatusColumns_(scheduleSheet);
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+  const schedules = normalizedType === "staff"
+    ? collectActiveSchedulesForStaff_(scheduleSheet, target.name, visitStatusIndex)
+    : collectActiveSchedulesForUser_(scheduleSheet, target.name, visitStatusIndex);
+
+  return {
+    success: true,
+    preview: true,
+    targetType: normalizedType,
+    targetId: normalizedId,
+    targetName: target.name,
+    displayName: target.lineDisplayName || "",
+    schedules: schedules,
+    message: schedules.length ? "代理表示を読み込みました。" : "対象期間内の予定はありません。"
   };
 }
 
