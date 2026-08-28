@@ -1484,7 +1484,8 @@ function getSchedulesForLiff_(lineUserId) {
   }
 
   ensureScheduleStatusColumns_(scheduleSheet);
-  const schedules = collectActiveSchedulesForStaff_(scheduleSheet, staffName);
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+  const schedules = collectActiveSchedulesForStaff_(scheduleSheet, staffName, visitStatusIndex);
 
   return {
     success: true,
@@ -1524,7 +1525,8 @@ function getUserSchedulesForLiff_(lineUserId, displayName) {
   }
 
   ensureScheduleStatusColumns_(scheduleSheet);
-  const schedules = collectActiveSchedulesForUser_(scheduleSheet, match.name);
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+  const schedules = collectActiveSchedulesForUser_(scheduleSheet, match.name, visitStatusIndex);
 
   return {
     success: true,
@@ -1698,7 +1700,7 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
   };
 }
 
-function collectActiveSchedulesForStaff_(sheet, staffName) {
+function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
   if (!sheet || sheet.getLastRow() < 2) return [];
 
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
@@ -1720,16 +1722,19 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
     const date = parseComparisonDate_(visitDate, row[0]);
     if (!isDateInLiffScheduleWindow_(date, dateWindow)) return;
 
+    const visitStatus = getVisitStatusForSchedule_(visitStatusIndex, date, rowStaffName, userName);
+    const resolvedStatus = resolveLiffScheduleStatus_(status, visitStatus);
+
     schedules.push({
       id: String(rowNumber),
       userName: userName,
       visitDate: formatScheduleDateForLiff_(visitDate, row[0]),
       visitDateValue: formatScheduleDateValueForLiff_(visitDate, row[0]),
-      status: status || "予定",
+      status: resolvedStatus,
       registeredAt: formatComparisonDateTime_(row[0]),
       calendarStatus: String(row[6] || ""),
-      updatedAt: formatComparisonDateTime_(row[9]),
-      lastVisitText: String(row[10] || "")
+      updatedAt: formatComparisonDateTime_(row[9]) || formatLatestVisitRegisteredAtForLiff_(visitStatus),
+      lastVisitText: String(row[10] || "") || formatVisitStatusTextForLiff_(visitStatus)
     });
   });
 
@@ -1737,7 +1742,7 @@ function collectActiveSchedulesForStaff_(sheet, staffName) {
   return schedules;
 }
 
-function collectActiveSchedulesForUser_(sheet, userName) {
+function collectActiveSchedulesForUser_(sheet, userName, visitStatusIndex) {
   if (!sheet || sheet.getLastRow() < 2) return [];
 
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
@@ -1759,14 +1764,18 @@ function collectActiveSchedulesForUser_(sheet, userName) {
     const date = parseComparisonDate_(visitDate, row[0]);
     if (!isDateInLiffScheduleWindow_(date, dateWindow)) return;
 
+    const visitStatus = getVisitStatusForSchedule_(visitStatusIndex, date, staffName, rowUserName);
+    const resolvedStatus = resolveLiffScheduleStatus_(status, visitStatus);
+
     schedules.push({
       id: String(rowNumber),
       staffName: staffName,
       userName: rowUserName,
       visitDate: formatScheduleDateForLiff_(visitDate, row[0]),
       visitDateValue: formatScheduleDateValueForLiff_(visitDate, row[0]),
-      status: status || "予定",
-      updatedAt: formatComparisonDateTime_(row[9])
+      status: resolvedStatus,
+      updatedAt: formatComparisonDateTime_(row[9]) || formatLatestVisitRegisteredAtForLiff_(visitStatus),
+      lastVisitText: formatVisitStatusTextForLiff_(visitStatus)
     });
   });
 
@@ -1879,6 +1888,88 @@ function getEditableScheduleRow_(sheet, staffName, scheduleId) {
 
 function isCancelledScheduleStatus_(status) {
   return /キャンセル|取消|中止/.test(String(status || "").trim());
+}
+
+function buildVisitStatusIndex_(sheet) {
+  const index = {};
+  if (!sheet || sheet.getLastRow() < 2) return index;
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 8)).getValues();
+
+  values.forEach(row => {
+    const registeredAt = row[0];
+    const visitType = String(row[1] || "").trim();
+    const staffName = String(row[2] || "").trim();
+    const userName = String(row[3] || "").trim();
+    const visitDate = parseComparisonDate_(row[4], registeredAt);
+
+    if (!staffName || !userName || !visitDate) return;
+
+    const key = buildVisitStatusKey_(visitDate, staffName, userName);
+    if (!index[key]) {
+      index[key] = {
+        hasStart: false,
+        hasEnd: false,
+        startTimes: [],
+        endTimes: [],
+        registeredAts: []
+      };
+    }
+
+    if (visitType === "開始") {
+      index[key].hasStart = true;
+      addUniqueText_(index[key].startTimes, formatComparisonTime_(row[5]));
+    } else if (visitType === "終了") {
+      index[key].hasEnd = true;
+      addUniqueText_(index[key].endTimes, formatComparisonTime_(row[5]));
+    }
+
+    addUniqueText_(index[key].registeredAts, formatComparisonDateTime_(registeredAt));
+  });
+
+  return index;
+}
+
+function getVisitStatusForSchedule_(visitStatusIndex, visitDate, staffName, userName) {
+  if (!visitStatusIndex || !visitDate || !staffName || !userName) return null;
+  return visitStatusIndex[buildVisitStatusKey_(visitDate, staffName, userName)] || null;
+}
+
+function buildVisitStatusKey_(visitDate, staffName, userName) {
+  return [
+    Utilities.formatDate(visitDate, "Asia/Tokyo", "yyyy-MM-dd"),
+    normalizeName_(staffName),
+    normalizeName_(userName)
+  ].join("|");
+}
+
+function resolveLiffScheduleStatus_(scheduleStatus, visitStatus) {
+  const status = String(scheduleStatus || "予定").trim();
+  if (isCancelledScheduleStatus_(status) || status === "完了" || status === "訪問中") return status;
+  if (!visitStatus) return status || "予定";
+  if (visitStatus.hasStart && visitStatus.hasEnd) return "完了";
+  if (visitStatus.hasStart) return "開始のみ";
+  if (visitStatus.hasEnd) return "終了のみ";
+  return status || "予定";
+}
+
+function formatVisitStatusTextForLiff_(visitStatus) {
+  if (!visitStatus) return "";
+
+  const parts = [];
+  if (visitStatus.startTimes && visitStatus.startTimes.length) {
+    parts.push("開始 " + visitStatus.startTimes.join("、"));
+  }
+  if (visitStatus.endTimes && visitStatus.endTimes.length) {
+    parts.push("終了 " + visitStatus.endTimes.join("、"));
+  }
+
+  return parts.length ? "実績：" + parts.join(" / ") : "";
+}
+
+function formatLatestVisitRegisteredAtForLiff_(visitStatus) {
+  if (!visitStatus || !visitStatus.registeredAts || !visitStatus.registeredAts.length) return "";
+  return visitStatus.registeredAts[visitStatus.registeredAts.length - 1];
 }
 
 function formatScheduleDateForLiff_(value, fallbackDate) {
