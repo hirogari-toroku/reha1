@@ -23,6 +23,12 @@ const STAFF_ID_HEADER = "スタッフID";
 const USER_ID_HEADER = "利用者ID";
 const REFERRER_ID_HEADER = "紹介者ID";
 const STAFF_BANK_REGISTRATION_STATUS_HEADER = "振込先登録状況";
+const STAFF_FOLDER_URL_HEADER = "スタッフフォルダURL";
+const STAFF_PAYSLIP_FOLDER_URL_HEADER = "給与明細フォルダURL";
+const USER_CHART_URL_HEADER = "カルテURL";
+const USER_FOLDER_URL_HEADER = "利用者フォルダURL";
+const USER_BASIC_INFO_URL_HEADER = "基本情報URL";
+const STAFF_USER_CHART_URL_HEADER = "カルテURL";
 const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
 const PDF_EXPORT_WAIT_MS = 1000;
@@ -509,6 +515,7 @@ function initLiffApp_(lineUserId, displayName) {
     return {
       success: true,
       staffName: displayMasterData.staffName,
+      staffResources: displayMasterData.staffResources || {},
       users: displayMasterData.users,
       lineUserId: lineUserId || "",
       displayName: displayName || "",
@@ -876,23 +883,33 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
   const sheet = ss.getSheetByName(LIFF_DISPLAY_MASTER_SHEET_NAME);
   if (!sheet || sheet.getLastRow() < 2) return null;
 
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
+  const headerMap = getHeaderColumnMap_(sheet);
+  const lineUserIdCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID"], 0);
+  const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名"], 1);
+  const usersCol = getColumnIndex_(headerMap, ["利用者一覧"], 2);
+  const staffFolderUrlCol = getColumnIndex_(headerMap, [STAFF_FOLDER_URL_HEADER], -1);
+  const payslipFolderUrlCol = getColumnIndex_(headerMap, [STAFF_PAYSLIP_FOLDER_URL_HEADER], -1);
+  const userLinksJsonCol = getColumnIndex_(headerMap, ["利用者リンクJSON"], -1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
 
   for (let i = 0; i < values.length; i++) {
-    const rowUserId = String(values[i][0] || "").trim();
+    const rowUserId = String(values[i][lineUserIdCol] || "").trim();
     if (rowUserId !== targetUserId) continue;
 
-    const staffName = String(values[i][1] || "").trim();
-    const userText = String(values[i][2] || "").trim();
+    const staffName = String(values[i][staffNameCol] || "").trim();
+    const userText = String(values[i][usersCol] || "").trim();
     if (!staffName) return null;
 
-    const users = userText
-      .split("\n")
-      .map(name => String(name || "").trim())
-      .filter(name => name !== "")
-      .map(name => ({ name: name }));
+    const users = parseLiffUserLinksJson_(
+      userLinksJsonCol >= 0 ? values[i][userLinksJsonCol] : "",
+      userText
+    );
     const data = {
       staffName: staffName,
+      staffResources: {
+        staffFolderUrl: staffFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][staffFolderUrlCol]) : "",
+        payslipFolderUrl: payslipFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][payslipFolderUrlCol]) : ""
+      },
       users: users
     };
 
@@ -1447,6 +1464,7 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
 function getSchedulesForLiff_(lineUserId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  const displayMasterData = getLiffInitDataFromDisplayMaster_(lineUserId);
   const staffName = getStaffName_(ss, lineUserId);
 
   if (!scheduleSheet) {
@@ -1471,6 +1489,8 @@ function getSchedulesForLiff_(lineUserId) {
   return {
     success: true,
     staffName: staffName,
+    staffResources: displayMasterData ? displayMasterData.staffResources || {} : {},
+    users: displayMasterData ? displayMasterData.users || [] : [],
     schedules: schedules
   };
 }
@@ -2049,6 +2069,8 @@ function getStaffMasterColumnMap_(sheet) {
     accountNumber: getColumnIndex_(headerMap, ["口座番号"], STAFF_COL_ACCOUNT_NUMBER),
     receiverName: getColumnIndex_(headerMap, ["受取人名"], STAFF_COL_RECEIVER_NAME),
     payrollFolderId: getColumnIndex_(headerMap, ["給与明細フォルダID"], STAFF_COL_PAYROLL_FOLDER_ID),
+    staffFolderUrl: getColumnIndex_(headerMap, [STAFF_FOLDER_URL_HEADER], -1),
+    payslipFolderUrl: getColumnIndex_(headerMap, [STAFF_PAYSLIP_FOLDER_URL_HEADER], -1),
     address: getColumnIndex_(headerMap, ["住所"], STAFF_COL_ADDRESS),
     bankRegistrationStatus: getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1)
   };
@@ -5739,7 +5761,11 @@ function updateLiffDisplayMaster(suppressAlert) {
   }
 
   ensureUserStatusColumn_(ss);
-  const usersByStaff = buildUsersByStaffMap_(ss, staffUserSheet);
+  ensureUserMasterBaseColumns_(ss.getSheetByName(USER_MASTER_SHEET_NAME));
+  ensureStaffMasterHeaders_(staffSheet);
+  ensureStaffUserMasterSheet_(ss);
+  const usersByStaff = buildLiffUsersByStaffMap_(ss, staffUserSheet);
+  const staffResourcesByName = getStaffResourceMap_(staffSheet);
   const staffValues = staffSheet.getDataRange().getValues();
   const cols = getStaffMasterColumnMap_(staffSheet);
   const now = new Date();
@@ -5753,19 +5779,26 @@ function updateLiffDisplayMaster(suppressAlert) {
     if (!staffName) continue;
 
     const users = usersByStaff[normalizeName_(staffName)] || [];
-    const userNames = [TEST_USER_NAME].concat(users.filter(name => normalizeName_(name) !== normalizeName_(TEST_USER_NAME)));
+    const displayUsers = [{ name: TEST_USER_NAME }].concat(
+      users.filter(user => normalizeName_(user.name) !== normalizeName_(TEST_USER_NAME))
+    );
+    const staffResources = staffResourcesByName[normalizeName_(staffName)] || {};
 
     rows.push([
       liffLineUserId,
       staffName,
-      userNames.join("\n"),
+      displayUsers.map(user => user.name).join("\n"),
+      staffResources.staffFolderUrl || "",
+      staffResources.payslipFolderUrl || "",
+      JSON.stringify(displayUsers),
       now
     ]);
 
     if (liffLineUserId) {
       initDataMap[liffLineUserId] = {
         staffName: staffName,
-        users: userNames.map(name => ({ name: name }))
+        staffResources: staffResources,
+        users: displayUsers
       };
     }
   }
@@ -5776,6 +5809,9 @@ function updateLiffDisplayMaster(suppressAlert) {
     "LIFF用LINEユーザーID",
     "スタッフ名",
     "利用者一覧",
+    STAFF_FOLDER_URL_HEADER,
+    STAFF_PAYSLIP_FOLDER_URL_HEADER,
+    "利用者リンクJSON",
     "更新日時"
   ];
 
@@ -5795,7 +5831,10 @@ function updateLiffDisplayMaster(suppressAlert) {
   sheet.setColumnWidth(1, 250);
   sheet.setColumnWidth(2, 140);
   sheet.setColumnWidth(3, 280);
-  sheet.setColumnWidth(4, 150);
+  sheet.setColumnWidth(4, 260);
+  sheet.setColumnWidth(5, 260);
+  sheet.setColumnWidth(6, 360);
+  sheet.setColumnWidth(7, 150);
   saveLiffDisplayMasterProperties_(initDataMap);
 
   if (!suppressAlert) {
@@ -5883,6 +5922,137 @@ function buildUsersByStaffMap_(ss, staffUserSheet) {
   });
 
   return map;
+}
+
+function buildLiffUsersByStaffMap_(ss, staffUserSheet) {
+  const values = staffUserSheet.getDataRange().getValues();
+  const activeUserMap = getActiveUserMap_(ss);
+  const userResourceMap = getUserResourceMap_(ss);
+  const headerMap = getHeaderColumnMap_(staffUserSheet);
+  const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名", "氏名"], 0);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名", "利用者", "氏名"], 1);
+  const relationChartUrlCol = getColumnIndex_(headerMap, [STAFF_USER_CHART_URL_HEADER], -1);
+  const map = {};
+  const seen = {};
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const staffName = String(row[staffNameCol] || "").trim();
+    const userName = String(row[userNameCol] || "").trim();
+    const staffKey = normalizeName_(staffName);
+    const userKey = normalizeName_(userName);
+
+    if (!staffKey || !userName) continue;
+    if (!isActiveUserForLiffDisplay_(activeUserMap, userName)) continue;
+    if (!map[staffKey]) map[staffKey] = [];
+    if (!seen[staffKey]) seen[staffKey] = {};
+    if (seen[staffKey][userKey]) continue;
+
+    const userResources = userResourceMap[userKey] || {};
+    const relationChartUrl = relationChartUrlCol >= 0
+      ? normalizeResourceUrl_(row[relationChartUrlCol])
+      : "";
+
+    seen[staffKey][userKey] = true;
+    map[staffKey].push({
+      name: userResources.name || userName,
+      chartUrl: relationChartUrl || userResources.chartUrl || "",
+      userFolderUrl: userResources.userFolderUrl || "",
+      basicInfoUrl: userResources.basicInfoUrl || ""
+    });
+  }
+
+  Object.keys(map).forEach(staffKey => {
+    map[staffKey].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ja"));
+  });
+
+  return map;
+}
+
+function getStaffResourceMap_(staffSheet) {
+  if (!staffSheet || staffSheet.getLastRow() < 2) return {};
+
+  const cols = getStaffMasterColumnMap_(staffSheet);
+  const values = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, staffSheet.getLastColumn()).getValues();
+  const map = {};
+
+  values.forEach(row => {
+    const staffName = String(row[cols.name] || "").trim();
+    if (!staffName) return;
+
+    map[normalizeName_(staffName)] = {
+      staffFolderUrl: cols.staffFolderUrl >= 0 ? normalizeResourceUrl_(row[cols.staffFolderUrl]) : "",
+      payslipFolderUrl: cols.payslipFolderUrl >= 0 ? normalizeResourceUrl_(row[cols.payslipFolderUrl]) : ""
+    };
+  });
+
+  return map;
+}
+
+function getUserResourceMap_(ss) {
+  const sheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+
+  ensureUserMasterBaseColumns_(sheet);
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
+  const chartUrlCol = getColumnIndex_(headerMap, [USER_CHART_URL_HEADER], -1);
+  const userFolderUrlCol = getColumnIndex_(headerMap, [USER_FOLDER_URL_HEADER], -1);
+  const basicInfoUrlCol = getColumnIndex_(headerMap, [USER_BASIC_INFO_URL_HEADER], -1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const map = {};
+
+  values.forEach(row => {
+    const userName = String(row[nameCol] || "").trim();
+    if (!userName) return;
+
+    map[normalizeName_(userName)] = {
+      name: userName,
+      chartUrl: chartUrlCol >= 0 ? normalizeResourceUrl_(row[chartUrlCol]) : "",
+      userFolderUrl: userFolderUrlCol >= 0 ? normalizeResourceUrl_(row[userFolderUrlCol]) : "",
+      basicInfoUrl: basicInfoUrlCol >= 0 ? normalizeResourceUrl_(row[basicInfoUrlCol]) : ""
+    };
+  });
+
+  return map;
+}
+
+function normalizeResourceUrl_(value) {
+  const url = String(value || "").trim();
+  return /^https?:\/\//i.test(url) ? url : "";
+}
+
+function parseLiffUserLinksJson_(value, fallbackText) {
+  const text = String(value || "").trim();
+  if (text) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map(item => {
+            if (typeof item === "string") {
+              return { name: item };
+            }
+            return {
+              name: String(item && item.name || "").trim(),
+              chartUrl: normalizeResourceUrl_(item && item.chartUrl),
+              userFolderUrl: normalizeResourceUrl_(item && item.userFolderUrl),
+              basicInfoUrl: normalizeResourceUrl_(item && item.basicInfoUrl)
+            };
+          })
+          .filter(item => item.name);
+      }
+    } catch (error) {
+      // 古い表示用マスタや手入力があっても、利用者一覧テキストに戻せるようにする。
+    }
+  }
+
+  return String(fallbackText || "")
+    .split(/\n/)
+    .map(name => String(name || "").trim())
+    .filter(Boolean)
+    .map(name => ({ name }));
 }
 
 function getActiveUserMap_(ss) {
@@ -6550,6 +6720,9 @@ function ensureUserMasterBaseColumns_(sheet) {
   ensureHeaderColumn_(sheet, "その他");
   ensureUserMasterLineColumns_(sheet);
   ensureHeaderColumn_(sheet, USER_ID_HEADER);
+  ensureHeaderColumn_(sheet, USER_CHART_URL_HEADER);
+  ensureHeaderColumn_(sheet, USER_FOLDER_URL_HEADER);
+  ensureHeaderColumn_(sheet, USER_BASIC_INFO_URL_HEADER);
 }
 
 function syncReferralData() {
@@ -7331,7 +7504,8 @@ function ensureStaffUserMasterSheet_(ss) {
     "利用者請求交通費",
     "交通費備考",
     STAFF_ID_HEADER,
-    USER_ID_HEADER
+    USER_ID_HEADER,
+    STAFF_USER_CHART_URL_HEADER
   ];
 
   if (!sheet) {
@@ -7541,6 +7715,9 @@ function ensureStaffMasterHeaders_(sheet) {
       sheet.getRange(1, index + 1).setValue(header);
     }
   });
+
+  ensureHeaderColumn_(sheet, STAFF_FOLDER_URL_HEADER);
+  ensureHeaderColumn_(sheet, STAFF_PAYSLIP_FOLDER_URL_HEADER);
 }
 
 function ensureStaffMasterProfileColumns_(sheet) {

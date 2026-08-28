@@ -313,6 +313,41 @@
       color: #a6b0ba;
     }
 
+    .resource-links,
+    .schedule-resource-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .resource-links {
+      margin: 0 0 12px;
+    }
+
+    .schedule-resource-links {
+      margin: 8px 0 10px;
+    }
+
+    .resource-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 1px solid #c8d0d9;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f2933;
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .resource-link.primary {
+      border-color: #06c755;
+      color: #057a38;
+    }
+
     .submit {
       margin-top: 18px;
       padding: 13px;
@@ -717,6 +752,7 @@
 
   <div class="panel">
     <div id="staff" class="staff">読み込み中...</div>
+    <div id="staffResources" class="resource-links hidden"></div>
 
     <div class="tabs">
       <button id="manageTab" class="active" type="button" onclick="switchMode('manage')">予定一覧</button>
@@ -865,6 +901,8 @@
     let pendingScheduleVisit = null;
     let adminStaffOptions = [];
     let adminUserOptions = [];
+    let staffResources = {};
+    let userResourceMap = {};
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -1115,6 +1153,90 @@
         .filter(Boolean);
     }
 
+    function normalizeNameKey(value) {
+      return String(value || "").replace(/[\s　]/g, "").trim();
+    }
+
+    function isValidResourceUrl(url) {
+      return /^https?:\/\//i.test(String(url || "").trim());
+    }
+
+    function makeResourceLink(label, url, primary) {
+      const link = document.createElement("a");
+      link.className = "resource-link" + (primary ? " primary" : "");
+      link.href = String(url || "").trim();
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = label;
+      return link;
+    }
+
+    function setResourceData(data) {
+      staffResources = data && data.staffResources ? data.staffResources : {};
+      userResourceMap = {};
+
+      (data && data.users || []).forEach(user => {
+        if (typeof user === "string") {
+          userResourceMap[normalizeNameKey(user)] = { name: user };
+          return;
+        }
+
+        if (user && user.name) {
+          userResourceMap[normalizeNameKey(user.name)] = user;
+        }
+      });
+
+      renderStaffResourceLinks();
+    }
+
+    function renderStaffResourceLinks() {
+      const area = document.getElementById("staffResources");
+      area.innerHTML = "";
+
+      if (appMode !== "staff") {
+        area.classList.add("hidden");
+        return;
+      }
+
+      const links = [
+        ["スタッフフォルダ", staffResources.staffFolderUrl, true],
+        ["給与明細", staffResources.payslipFolderUrl, false]
+      ].filter(([, url]) => isValidResourceUrl(url));
+
+      if (!links.length) {
+        area.classList.add("hidden");
+        return;
+      }
+
+      links.forEach(([label, url, primary]) => {
+        area.appendChild(makeResourceLink(label, url, primary));
+      });
+      area.classList.remove("hidden");
+    }
+
+    function getUserResourceForItem(item) {
+      const byName = userResourceMap[normalizeNameKey(item && item.userName)];
+      return Object.assign({}, byName || {}, item || {});
+    }
+
+    function appendUserResourceLinks(card, item) {
+      const resources = getUserResourceForItem(item);
+      const links = [
+        ["カルテ", resources.chartUrl, true],
+        ["利用者フォルダ", resources.userFolderUrl, false],
+        ["基本情報", resources.basicInfoUrl, false]
+      ].filter(([, url]) => isValidResourceUrl(url));
+
+      if (!links.length) return;
+
+      const area = document.createElement("div");
+      area.className = "schedule-resource-links";
+      links.forEach(([label, url, primary]) => {
+        area.appendChild(makeResourceLink(label, url, primary));
+      });
+      card.appendChild(area);
+    }
+
     function loadSchedules(silent) {
       if (!lineUserId) return Promise.resolve();
 
@@ -1130,17 +1252,20 @@
         .then(data => {
           if (!data.success) {
             scheduleItems = [];
+            setResourceData({});
             renderScheduleList();
             if (!silent) setMessage(data.message || "予定を取得できませんでした。");
             return;
           }
 
           scheduleItems = data.schedules || [];
+          setResourceData(data);
           renderScheduleList();
           if (!silent) setMessage(scheduleItems.length ? "" : "対象期間内の予定はありません。");
         })
         .catch(error => {
           scheduleItems = [];
+          setResourceData({});
           renderScheduleList();
           if (!silent) setMessage("予定の取得に失敗しました：" + error.message);
         });
@@ -1610,6 +1735,8 @@
           card.appendChild(meta);
         }
 
+        appendUserResourceLinks(card, item);
+
         const actions = document.createElement("div");
         actions.className = "schedule-card-actions";
 
@@ -1874,14 +2001,17 @@
         if (!data.success) {
           document.getElementById("staff").innerText =
             data.message + "\nLIFF用LINEユーザーID：" + lineUserId;
+          setResourceData({});
           setDisabled(true);
           return;
         }
 
         staffName = data.staffName;
         document.getElementById("staff").innerText = "スタッフ：" + staffName;
+        setResourceData(data);
 
-        data.users.forEach(user => {
+        const users = data.users || [];
+        users.forEach(user => {
           const userName = typeof user === "string" ? user : user.name;
           if (!userName) return;
 
@@ -1891,7 +2021,7 @@
           select.appendChild(option);
         });
 
-        if (data.users.length === 0) {
+        if (users.length === 0) {
           setMessage("担当利用者が登録されていません。管理者へ確認してください。");
           setDisabled(true);
         }
