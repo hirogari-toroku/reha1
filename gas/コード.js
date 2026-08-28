@@ -17,8 +17,11 @@ const USER_QUESTIONNAIRE_SPREADSHEET_ID = "1y8h9EZG47uYVuoV3K1L_m9-JaDP8GRLQ6ZZ-
 const USER_QUESTIONNAIRE_SHEET_ID = 1702028371;
 const USER_MASTER_SHEET_NAME = "利用者マスタ";
 const ADMIN_MASTER_SHEET_NAME = "管理者マスタ";
+const REFERRER_MASTER_SHEET_NAME = "紹介者マスタ";
+const REFERRAL_MANAGEMENT_SHEET_NAME = "紹介管理";
 const STAFF_ID_HEADER = "スタッフID";
 const USER_ID_HEADER = "利用者ID";
+const REFERRER_ID_HEADER = "紹介者ID";
 const STAFF_BANK_REGISTRATION_STATUS_HEADER = "振込先登録状況";
 const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
@@ -6227,17 +6230,20 @@ function setupMasterIdColumnsCore_(ss) {
   const staffResult = ensureStaffMasterIds_(ss);
   const userResult = ensureUserMasterIds_(ss);
   const relationResult = ensureStaffUserMasterIds_(ss);
+  const referrerResult = ensureReferrerMasterIds_(ss);
 
   return {
     success: true,
     staffAddedCount: staffResult.addedCount,
     userAddedCount: userResult.addedCount,
+    referrerAddedCount: referrerResult.addedCount,
     relationUpdatedCount: relationResult.updatedCount,
     relationSkippedCount: relationResult.skippedCount,
     message:
       "ID列の整備が完了しました。\n" +
       "スタッフID追加：" + staffResult.addedCount + "件\n" +
       "利用者ID追加：" + userResult.addedCount + "件\n" +
+      "紹介者ID追加：" + referrerResult.addedCount + "件\n" +
       "スタッフ利用者マスタID反映：" + relationResult.updatedCount + "件\n" +
       "確認が必要：" + relationResult.skippedCount + "件"
   };
@@ -6398,6 +6404,7 @@ function runDataSetupAllCore_(ss) {
   messages.push(lineApplyResult.message);
 
   const secondIdResult = setupMasterIdColumnsCore_(ss);
+  const referralResult = syncReferralDataCore_(ss);
   const bankStatusResult = updateStaffBankRegistrationStatus_(ss);
   messages.push(
     "最終ID確認が完了しました。\n" +
@@ -6405,6 +6412,10 @@ function runDataSetupAllCore_(ss) {
     "利用者ID追加：" + secondIdResult.userAddedCount + "件\n" +
     "スタッフ利用者マスタID反映：" + secondIdResult.relationUpdatedCount + "件\n" +
     "確認が必要：" + secondIdResult.relationSkippedCount + "件\n" +
+    "紹介者マスタID追加：" + referralResult.referrerIdAddedCount + "件\n" +
+    "紹介管理追加：" + referralResult.referralAddedCount + "件\n" +
+    "紹介者紐づけ更新：" + referralResult.userUpdatedCount + "件\n" +
+    "紹介者確認が必要：" + referralResult.unmatchedCount + "件\n" +
     "振込先登録状況更新：" + bankStatusResult.updatedCount + "件"
   );
 
@@ -6526,9 +6537,278 @@ function ensureUserMasterBaseColumns_(sheet) {
   ensureHeaderColumn_(sheet, "電話番号");
   ensureHeaderColumn_(sheet, "病名もしくは症状");
   ensureHeaderColumn_(sheet, "紹介者");
+  ensureHeaderColumn_(sheet, REFERRER_ID_HEADER);
+  ensureHeaderColumn_(sheet, "紹介者名");
+  ensureHeaderColumn_(sheet, "紹介元種別");
   ensureHeaderColumn_(sheet, "その他");
   ensureUserMasterLineColumns_(sheet);
   ensureHeaderColumn_(sheet, USER_ID_HEADER);
+}
+
+function syncReferralData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = syncReferralDataCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function syncReferralDataCore_(ss) {
+  ensureReferralSheets_(ss);
+  const referrerIdResult = ensureReferrerMasterIds_(ss);
+  const userResult = syncUserMasterReferralColumns_(ss);
+  const referralResult = syncReferralManagementRows_(ss);
+
+  return {
+    success: true,
+    referrerIdAddedCount: referrerIdResult.addedCount,
+    userUpdatedCount: userResult.updatedCount,
+    unmatchedCount: userResult.unmatchedCount,
+    referralAddedCount: referralResult.addedCount,
+    message:
+      "紹介者管理を整えました。\n" +
+      "紹介者マスタID追加：" + referrerIdResult.addedCount + "件\n" +
+      "利用者マスタの紹介者紐づけ更新：" + userResult.updatedCount + "件\n" +
+      "紹介者マスタ未登録のため確認が必要：" + userResult.unmatchedCount + "件\n" +
+      "紹介管理追加：" + referralResult.addedCount + "件"
+  };
+}
+
+function ensureReferralSheets_(ss) {
+  const referrerSheet = ensureSheetWithHeaders_(ss, REFERRER_MASTER_SHEET_NAME, [
+    REFERRER_ID_HEADER,
+    "紹介者名",
+    "所属",
+    "職種",
+    "LINE表示名",
+    "LINEユーザーID",
+    "LIFF用LINEユーザーID",
+    "紹介料対象",
+    "紹介料支払状況",
+    "状態",
+    "メモ"
+  ]);
+
+  const referralSheet = ensureSheetWithHeaders_(ss, REFERRAL_MANAGEMENT_SHEET_NAME, [
+    "紹介日",
+    REFERRER_ID_HEADER,
+    "紹介者名",
+    USER_ID_HEADER,
+    "利用者名",
+    "紹介元種別",
+    "利用開始日",
+    "紹介料対象",
+    "紹介料支払状況",
+    "状態",
+    "メモ"
+  ]);
+
+  return {
+    referrerSheet: referrerSheet,
+    referralSheet: referralSheet
+  };
+}
+
+function ensureSheetWithHeaders_(ss, sheetName, headers) {
+  let sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  }
+
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  } else {
+    headers.forEach(header => ensureHeaderColumn_(sheet, header));
+  }
+
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function ensureReferrerMasterIds_(ss) {
+  const sheets = ensureReferralSheets_(ss);
+  const sheet = sheets.referrerSheet;
+  const idCol = ensureHeaderColumn_(sheet, REFERRER_ID_HEADER);
+  const headerMap = getHeaderColumnMap_(sheet);
+  const nameCol = getColumnIndex_(headerMap, ["紹介者名", "氏名", "名前"], 1);
+  return fillMissingEntityIds_(sheet, idCol, nameCol, "R");
+}
+
+function syncUserMasterReferralColumns_(ss) {
+  const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+  if (!userSheet || userSheet.getLastRow() < 2) {
+    return { updatedCount: 0, unmatchedCount: 0 };
+  }
+
+  ensureUserMasterBaseColumns_(userSheet);
+  ensureReferralSheets_(ss);
+
+  const referrerMap = getReferrerNameToIdMap_(ss);
+  const headerMap = getHeaderColumnMap_(userSheet);
+  const referrerTextCol = getColumnIndex_(headerMap, ["紹介者"], -1);
+  const referrerIdCol = getColumnIndex_(headerMap, [REFERRER_ID_HEADER], -1);
+  const referrerNameCol = getColumnIndex_(headerMap, ["紹介者名"], -1);
+  const referrerTypeCol = getColumnIndex_(headerMap, ["紹介元種別"], -1);
+  const values = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, userSheet.getLastColumn()).getValues();
+  let updatedCount = 0;
+  let unmatchedCount = 0;
+
+  values.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const rawReferrerName = getReferralNameFromUserRow_(row, referrerTextCol, referrerNameCol);
+    if (!rawReferrerName) return;
+
+    const referrer = referrerMap[normalizeName_(rawReferrerName)] || null;
+    let updated = false;
+
+    if (referrer) {
+      if (referrerIdCol >= 0 && !String(row[referrerIdCol] || "").trim()) {
+        userSheet.getRange(rowNumber, referrerIdCol + 1).setValue(referrer.id);
+        updated = true;
+      }
+      if (referrerNameCol >= 0 && !String(row[referrerNameCol] || "").trim()) {
+        userSheet.getRange(rowNumber, referrerNameCol + 1).setValue(referrer.name);
+        updated = true;
+      }
+      if (referrerTypeCol >= 0 && !String(row[referrerTypeCol] || "").trim()) {
+        userSheet.getRange(rowNumber, referrerTypeCol + 1).setValue("紹介者マスタ");
+        updated = true;
+      }
+    } else {
+      unmatchedCount++;
+      if (referrerNameCol >= 0 && !String(row[referrerNameCol] || "").trim()) {
+        userSheet.getRange(rowNumber, referrerNameCol + 1).setValue(rawReferrerName);
+        updated = true;
+      }
+      if (referrerTypeCol >= 0 && !String(row[referrerTypeCol] || "").trim()) {
+        userSheet.getRange(rowNumber, referrerTypeCol + 1).setValue("紹介者マスタ未登録");
+        updated = true;
+      }
+    }
+
+    if (updated) updatedCount++;
+  });
+
+  return {
+    updatedCount: updatedCount,
+    unmatchedCount: unmatchedCount
+  };
+}
+
+function syncReferralManagementRows_(ss) {
+  const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+  const sheets = ensureReferralSheets_(ss);
+  const referralSheet = sheets.referralSheet;
+
+  if (!userSheet || userSheet.getLastRow() < 2) {
+    return { addedCount: 0 };
+  }
+
+  ensureUserMasterBaseColumns_(userSheet);
+  const userHeaderMap = getHeaderColumnMap_(userSheet);
+  const referralHeaderMap = getHeaderColumnMap_(referralSheet);
+  const existingKeys = getExistingReferralManagementKeys_(referralSheet);
+  const referrerTextCol = getColumnIndex_(userHeaderMap, ["紹介者"], -1);
+  const referrerIdCol = getColumnIndex_(userHeaderMap, [REFERRER_ID_HEADER], -1);
+  const referrerNameCol = getColumnIndex_(userHeaderMap, ["紹介者名"], -1);
+  const referrerTypeCol = getColumnIndex_(userHeaderMap, ["紹介元種別"], -1);
+  const userIdCol = getColumnIndex_(userHeaderMap, [USER_ID_HEADER], -1);
+  const userNameCol = getColumnIndex_(userHeaderMap, ["利用者名", "氏名", "名前"], 0);
+  const values = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, userSheet.getLastColumn()).getValues();
+  const rows = [];
+
+  values.forEach(row => {
+    const userName = String(row[userNameCol] || "").trim();
+    const userId = userIdCol >= 0 ? String(row[userIdCol] || "").trim() : "";
+    const referrerName = getReferralNameFromUserRow_(row, referrerNameCol, referrerTextCol);
+    const referrerId = referrerIdCol >= 0 ? String(row[referrerIdCol] || "").trim() : "";
+    if (!userName || !referrerName) return;
+
+    const key = createReferralManagementKey_(userId, userName, referrerId, referrerName);
+    if (existingKeys[key]) return;
+
+    const newRow = new Array(referralSheet.getLastColumn()).fill("");
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["紹介日"], new Date(), -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, [REFERRER_ID_HEADER], referrerId, -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["紹介者名"], referrerName, -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, [USER_ID_HEADER], userId, -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["利用者名"], userName, -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["紹介元種別"], referrerTypeCol >= 0 ? row[referrerTypeCol] : "", -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["紹介料対象"], "確認中", -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["紹介料支払状況"], "未処理", -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["状態"], referrerId ? "紐づけ済み" : "紹介者確認", -1);
+    setRowValueByHeaders_(newRow, referralHeaderMap, ["メモ"], referrerId ? "" : "紹介者マスタに登録後、紹介者IDを確認してください。", -1);
+    rows.push(newRow);
+    existingKeys[key] = true;
+  });
+
+  if (rows.length > 0) {
+    referralSheet
+      .getRange(referralSheet.getLastRow() + 1, 1, rows.length, rows[0].length)
+      .setValues(rows);
+  }
+
+  return { addedCount: rows.length };
+}
+
+function getReferrerNameToIdMap_(ss) {
+  const sheet = ss.getSheetByName(REFERRER_MASTER_SHEET_NAME);
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const idCol = getColumnIndex_(headerMap, [REFERRER_ID_HEADER], 0);
+  const nameCol = getColumnIndex_(headerMap, ["紹介者名", "氏名", "名前"], 1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  values.forEach(row => {
+    const id = String(row[idCol] || "").trim();
+    const name = String(row[nameCol] || "").trim();
+    const key = normalizeName_(name);
+    if (key && id && !map[key]) {
+      map[key] = {
+        id: id,
+        name: name
+      };
+    }
+  });
+
+  return map;
+}
+
+function getExistingReferralManagementKeys_(sheet) {
+  const keys = {};
+  if (!sheet || sheet.getLastRow() < 2) return keys;
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const userIdCol = getColumnIndex_(headerMap, [USER_ID_HEADER], -1);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名"], -1);
+  const referrerIdCol = getColumnIndex_(headerMap, [REFERRER_ID_HEADER], -1);
+  const referrerNameCol = getColumnIndex_(headerMap, ["紹介者名"], -1);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+
+  values.forEach(row => {
+    const userId = userIdCol >= 0 ? row[userIdCol] : "";
+    const userName = userNameCol >= 0 ? row[userNameCol] : "";
+    const referrerId = referrerIdCol >= 0 ? row[referrerIdCol] : "";
+    const referrerName = referrerNameCol >= 0 ? row[referrerNameCol] : "";
+    const key = createReferralManagementKey_(userId, userName, referrerId, referrerName);
+    if (key) keys[key] = true;
+  });
+
+  return keys;
+}
+
+function createReferralManagementKey_(userId, userName, referrerId, referrerName) {
+  const userKey = String(userId || "").trim() || normalizeName_(userName);
+  const referrerKey = String(referrerId || "").trim() || normalizeName_(referrerName);
+  if (!userKey || !referrerKey) return "";
+  return userKey + "::" + referrerKey;
+}
+
+function getReferralNameFromUserRow_(row, primaryCol, fallbackCol) {
+  const primary = primaryCol >= 0 ? String(row[primaryCol] || "").trim() : "";
+  const fallback = fallbackCol >= 0 ? String(row[fallbackCol] || "").trim() : "";
+  return primary || fallback;
 }
 
 function ensureAnyHeaderColumn_(sheet, headerNames, defaultHeaderName) {
