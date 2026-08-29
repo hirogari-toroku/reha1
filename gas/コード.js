@@ -1805,7 +1805,7 @@ function collectActiveSchedulesForUser_(sheet, userName, visitStatusIndex) {
   });
 
   appendUnplannedVisitResultsForUser_(schedules, visitStatusIndex, targetUser, plannedVisitKeys, dateWindow);
-  schedules.sort((a, b) => String(a.visitDateValue).localeCompare(String(b.visitDateValue)));
+  schedules.sort((a, b) => String(b.visitDateValue).localeCompare(String(a.visitDateValue)));
   return schedules;
 }
 
@@ -1850,7 +1850,6 @@ function enrichLiffScheduleItemsWithUserResources_(ss, schedules) {
   schedules.forEach(item => {
     const resources = userResourceMap[normalizeName_(item.userName)] || {};
     item.chartUrl = resources.chartUrl || "";
-    item.userFolderUrl = resources.userFolderUrl || "";
     item.basicInfoUrl = resources.basicInfoUrl || "";
   });
 
