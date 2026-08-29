@@ -1502,6 +1502,7 @@ function getSchedulesForLiff_(lineUserId) {
   ensureScheduleStatusColumns_(scheduleSheet);
   const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
   const schedules = collectActiveSchedulesForStaff_(scheduleSheet, staffName, visitStatusIndex);
+  enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
   return {
     success: true,
@@ -1543,6 +1544,7 @@ function getUserSchedulesForLiff_(lineUserId, displayName) {
   ensureScheduleStatusColumns_(scheduleSheet);
   const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
   const schedules = collectActiveSchedulesForUser_(scheduleSheet, match.name, visitStatusIndex);
+  enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
   return {
     success: true,
@@ -1839,6 +1841,20 @@ function appendUnplannedVisitResults_(schedules, visitStatusIndex, plannedVisitK
       lastVisitText: formatVisitStatusTextForLiff_(item)
     });
   });
+}
+
+function enrichLiffScheduleItemsWithUserResources_(ss, schedules) {
+  if (!schedules || schedules.length === 0) return schedules;
+
+  const userResourceMap = getUserResourceMap_(ss);
+  schedules.forEach(item => {
+    const resources = userResourceMap[normalizeName_(item.userName)] || {};
+    item.chartUrl = resources.chartUrl || "";
+    item.userFolderUrl = resources.userFolderUrl || "";
+    item.basicInfoUrl = resources.basicInfoUrl || "";
+  });
+
+  return schedules;
 }
 
 function getLiffScheduleDateWindow_() {
@@ -7379,6 +7395,7 @@ function adminPreviewSchedulesFromLiff_(lineUserId, displayName, targetType, tar
   const schedules = normalizedType === "staff"
     ? collectActiveSchedulesForStaff_(scheduleSheet, target.name, visitStatusIndex)
     : collectActiveSchedulesForUser_(scheduleSheet, target.name, visitStatusIndex);
+  enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
   return {
     success: true,
