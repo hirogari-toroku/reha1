@@ -348,6 +348,14 @@
       color: #057a38;
     }
 
+    .title-resource-link {
+      min-height: 30px;
+      margin-left: 8px;
+      padding: 4px 10px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
     .submit {
       margin-top: 18px;
       padding: 13px;
@@ -1218,6 +1226,15 @@
       return link;
     }
 
+    function appendTitleChartLink(container, item) {
+      const resources = getUserResourceForItem(item);
+      if (!isValidResourceUrl(resources.chartUrl)) return;
+
+      const link = makeResourceLink("カルテ", resources.chartUrl, true);
+      link.classList.add("title-resource-link");
+      container.appendChild(link);
+    }
+
     function setResourceData(data) {
       staffResources = data && data.staffResources ? data.staffResources : {};
       userResourceMap = {};
@@ -1268,7 +1285,6 @@
     function appendUserResourceLinks(card, item) {
       const resources = getUserResourceForItem(item);
       const links = [
-        ["カルテ", resources.chartUrl, true],
         ["利用者フォルダ", resources.userFolderUrl, false],
         ["基本情報", resources.basicInfoUrl, false]
       ].filter(([, url]) => isValidResourceUrl(url));
@@ -1779,6 +1795,7 @@
         name.textContent = data.targetType === "user"
           ? (item.visitDate || "")
           : (item.visitDate || "") + "　" + (item.userName || "");
+        if (data.targetType === "staff") appendTitleChartLink(name, item);
 
         const status = document.createElement("span");
         status.className = "status-pill";
@@ -1921,6 +1938,7 @@
 
         const name = document.createElement("span");
         name.textContent = item.visitDate + "　" + item.userName;
+        appendTitleChartLink(name, item);
 
         const status = document.createElement("span");
         status.className = "status-pill";
