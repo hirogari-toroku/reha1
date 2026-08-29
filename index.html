@@ -1285,7 +1285,6 @@
     function appendUserResourceLinks(card, item) {
       const resources = getUserResourceForItem(item);
       const links = [
-        ["利用者フォルダ", resources.userFolderUrl, false],
         ["基本情報", resources.basicInfoUrl, false]
       ].filter(([, url]) => isValidResourceUrl(url));
 
