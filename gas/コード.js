@@ -1836,6 +1836,7 @@ function appendUnplannedVisitResults_(schedules, visitStatusIndex, plannedVisitK
     if (plannedVisitKeys[key]) return;
     if (!isDateInLiffScheduleWindow_(item.date, dateWindow)) return;
     if (!predicate(item)) return;
+    if (isGreetingUserNameCandidate_(item.userName)) return;
 
     schedules.push({
       id: "visit-" + key,
