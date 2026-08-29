@@ -1246,8 +1246,7 @@
       }
 
       const links = [
-        ["スタッフフォルダ", staffResources.staffFolderUrl, true],
-        ["給与明細", staffResources.payslipFolderUrl, false]
+        ["スタッフフォルダ", staffResources.staffFolderUrl, true]
       ].filter(([, url]) => isValidResourceUrl(url));
 
       if (!links.length) {
@@ -1764,9 +1763,12 @@
       }
 
       schedules.forEach(item => {
-        const displayStatus = !item.status || item.status === "予定"
+        const isUnplannedVisit = item.kind === "unplannedVisit";
+        const displayStatus = isUnplannedVisit
+          ? "予定外実績"
+          : (!item.status || item.status === "予定"
           ? (data.targetType === "user" ? "予約あり" : "未開始")
-          : item.status;
+          : item.status);
         const card = document.createElement("div");
         card.className = "schedule-card";
 
@@ -1783,7 +1785,7 @@
         status.textContent = displayStatus;
         if (displayStatus === "訪問中") status.classList.add("active");
         if (displayStatus === "完了") status.classList.add("done");
-        if (displayStatus === "開始のみ") status.classList.add("partial");
+        if (displayStatus === "開始のみ" || displayStatus === "予定外実績") status.classList.add("partial");
 
         title.appendChild(name);
         title.appendChild(status);
@@ -1802,6 +1804,18 @@
 
         if (data.targetType === "staff") {
           appendUserResourceLinks(card, item);
+        }
+
+        if (isUnplannedVisit) {
+          const note = document.createElement("div");
+          note.className = "schedule-card-meta";
+          note.textContent = "予定に紐づかない実績です。表示確認専用です。";
+          card.appendChild(note);
+          result.appendChild(card);
+          return;
+        }
+
+        if (data.targetType === "staff") {
           const actions = document.createElement("div");
           actions.className = "schedule-card-actions admin-preview-actions";
           ["開始", "終了", "変更", "キャンセル"].forEach(label => {
@@ -1895,7 +1909,10 @@
       }
 
       scheduleItems.forEach(item => {
-        const displayStatus = !item.status || item.status === "予定" ? "未開始" : item.status;
+        const isUnplannedVisit = item.kind === "unplannedVisit";
+        const displayStatus = isUnplannedVisit
+          ? "予定外実績"
+          : (!item.status || item.status === "予定" ? "未開始" : item.status);
         const card = document.createElement("div");
         card.className = "schedule-card";
 
@@ -1910,7 +1927,7 @@
         status.textContent = displayStatus;
         if (displayStatus === "訪問中") status.classList.add("active");
         if (displayStatus === "完了") status.classList.add("done");
-        if (displayStatus === "開始のみ") status.classList.add("partial");
+        if (displayStatus === "開始のみ" || displayStatus === "予定外実績") status.classList.add("partial");
 
         title.appendChild(name);
         title.appendChild(status);
@@ -1924,6 +1941,15 @@
         }
 
         appendUserResourceLinks(card, item);
+
+        if (isUnplannedVisit) {
+          const note = document.createElement("div");
+          note.className = "schedule-card-meta";
+          note.textContent = "予定に紐づかない実績です。開始・終了・変更・キャンセルの対象外です。";
+          card.appendChild(note);
+          area.appendChild(card);
+          return;
+        }
 
         const actions = document.createElement("div");
         actions.className = "schedule-card-actions";
@@ -2009,7 +2035,10 @@
       }
 
       scheduleItems.forEach(item => {
-        const displayStatus = !item.status || item.status === "予定" ? "予約あり" : item.status;
+        const isUnplannedVisit = item.kind === "unplannedVisit";
+        const displayStatus = isUnplannedVisit
+          ? "予定外実績"
+          : (!item.status || item.status === "予定" ? "予約あり" : item.status);
         const card = document.createElement("div");
         card.className = "schedule-card";
 
@@ -2024,6 +2053,7 @@
         status.textContent = displayStatus;
         if (displayStatus === "完了") status.classList.add("done");
         if (displayStatus === "訪問中") status.classList.add("active");
+        if (displayStatus === "予定外実績") status.classList.add("partial");
 
         title.appendChild(date);
         title.appendChild(status);
@@ -2041,6 +2071,13 @@
           updated.className = "schedule-card-meta";
           updated.textContent = "更新：" + item.updatedAt;
           card.appendChild(updated);
+        }
+
+        if (isUnplannedVisit && item.lastVisitText) {
+          const visit = document.createElement("div");
+          visit.className = "schedule-card-meta";
+          visit.textContent = item.lastVisitText;
+          card.appendChild(visit);
         }
 
         area.appendChild(card);

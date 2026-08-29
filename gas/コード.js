@@ -1716,6 +1716,7 @@ function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
   const targetStaff = normalizeName_(staffName);
   const dateWindow = getLiffScheduleDateWindow_();
   const schedules = [];
+  const plannedVisitKeys = {};
 
   values.forEach((row, index) => {
     const rowNumber = index + 2;
@@ -1730,6 +1731,8 @@ function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
 
     const date = parseComparisonDate_(visitDate, row[0]);
     if (!isDateInLiffScheduleWindow_(date, dateWindow)) return;
+
+    plannedVisitKeys[buildVisitStatusKey_(date, rowStaffName, userName)] = true;
 
     const visitStatus = getVisitStatusForSchedule_(visitStatusIndex, date, rowStaffName, userName);
     const resolvedStatus = resolveLiffScheduleStatus_(status, visitStatus);
@@ -1747,6 +1750,7 @@ function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
     });
   });
 
+  appendUnplannedVisitResultsForStaff_(schedules, visitStatusIndex, targetStaff, plannedVisitKeys, dateWindow);
   schedules.sort((a, b) => String(b.visitDateValue).localeCompare(String(a.visitDateValue)));
   return schedules;
 }
@@ -1758,6 +1762,7 @@ function collectActiveSchedulesForUser_(sheet, userName, visitStatusIndex) {
   const targetUser = normalizeName_(userName);
   const dateWindow = getLiffScheduleDateWindow_();
   const schedules = [];
+  const plannedVisitKeys = {};
 
   values.forEach((row, index) => {
     const rowNumber = index + 2;
@@ -1772,6 +1777,8 @@ function collectActiveSchedulesForUser_(sheet, userName, visitStatusIndex) {
 
     const date = parseComparisonDate_(visitDate, row[0]);
     if (!isDateInLiffScheduleWindow_(date, dateWindow)) return;
+
+    plannedVisitKeys[buildVisitStatusKey_(date, staffName, rowUserName)] = true;
 
     const visitStatus = getVisitStatusForSchedule_(visitStatusIndex, date, staffName, rowUserName);
     const resolvedStatus = resolveLiffScheduleStatus_(status, visitStatus);
@@ -1788,8 +1795,43 @@ function collectActiveSchedulesForUser_(sheet, userName, visitStatusIndex) {
     });
   });
 
+  appendUnplannedVisitResultsForUser_(schedules, visitStatusIndex, targetUser, plannedVisitKeys, dateWindow);
   schedules.sort((a, b) => String(a.visitDateValue).localeCompare(String(b.visitDateValue)));
   return schedules;
+}
+
+function appendUnplannedVisitResultsForStaff_(schedules, visitStatusIndex, targetStaff, plannedVisitKeys, dateWindow) {
+  appendUnplannedVisitResults_(schedules, visitStatusIndex, plannedVisitKeys, dateWindow, item => {
+    return normalizeName_(item.staffName) === targetStaff;
+  });
+}
+
+function appendUnplannedVisitResultsForUser_(schedules, visitStatusIndex, targetUser, plannedVisitKeys, dateWindow) {
+  appendUnplannedVisitResults_(schedules, visitStatusIndex, plannedVisitKeys, dateWindow, item => {
+    return normalizeName_(item.userName) === targetUser;
+  });
+}
+
+function appendUnplannedVisitResults_(schedules, visitStatusIndex, plannedVisitKeys, dateWindow, predicate) {
+  Object.keys(visitStatusIndex || {}).forEach(key => {
+    const item = visitStatusIndex[key];
+    if (!item || !item.date) return;
+    if (plannedVisitKeys[key]) return;
+    if (!isDateInLiffScheduleWindow_(item.date, dateWindow)) return;
+    if (!predicate(item)) return;
+
+    schedules.push({
+      id: "visit-" + key,
+      kind: "unplannedVisit",
+      staffName: item.staffName,
+      userName: item.userName,
+      visitDate: formatScheduleDateForLiff_(item.date, item.registeredAt),
+      visitDateValue: formatScheduleDateValueForLiff_(item.date, item.registeredAt),
+      status: "予定外実績",
+      updatedAt: formatLatestVisitRegisteredAtForLiff_(item),
+      lastVisitText: formatVisitStatusTextForLiff_(item)
+    });
+  });
 }
 
 function getLiffScheduleDateWindow_() {
@@ -1917,6 +1959,10 @@ function buildVisitStatusIndex_(sheet) {
     const key = buildVisitStatusKey_(visitDate, staffName, userName);
     if (!index[key]) {
       index[key] = {
+        date: visitDate,
+        registeredAt: registeredAt,
+        staffName: staffName,
+        userName: userName,
         hasStart: false,
         hasEnd: false,
         startTimes: [],
