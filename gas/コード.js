@@ -11,6 +11,7 @@ const PAYROLL_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
 const GMO_TRANSFER_CSV_CONFIRMED_FOLDER_ID = "1vTWdykjuj7fO27lmoCImPjy3TdNEb9Jp";
 const GMO_PASTE_SHEET_NAME = "GMO入出金CSV貼付";
 const COUPON_SHEET_NAME = "回数券管理";
+const COUPON_BASELINE_SHEET_NAME = "回数券基準";
 const STAFF_QUESTIONNAIRE_SPREADSHEET_ID = "1sQzA9oHCMH712l8gNuoZxrB29eX_UeQg5zHgy_1_tQw";
 const STAFF_QUESTIONNAIRE_SHEET_ID = 1876133724;
 const USER_QUESTIONNAIRE_SPREADSHEET_ID = "1y8h9EZG47uYVuoV3K1L_m9-JaDP8GRLQ6ZZ-HpgPxKM";
@@ -5779,26 +5780,53 @@ function updateCouponManagement() {
 
   const existingMemoMap = getExistingCouponMemoMap_(couponSheet);
   const users = getCouponUsers_(userSheet);
-  const paymentMap = getUserPaymentMap_(nyushukkinSheet);
-  const usageMap = getUserUsageMap_(visitSheet);
+  const baselineMap = getCouponBaselineMap_(ss);
+  const paymentMap = getUserPaymentMap_(nyushukkinSheet, baselineMap);
+  const usageMap = getUserUsageMap_(visitSheet, baselineMap);
+  const currentMonthKey = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM");
 
   const output = [[
-    "利用者名", "回数券残数", "未払い残高", "最終入金日", "最終入金額", "1回単価", "不足金額", "メモ"
+    "利用者名",
+    "回数券残数",
+    "未払い残高",
+    "最終入金日",
+    "最終入金額",
+    "1回単価",
+    "不足金額",
+    "基準日",
+    "基準残数",
+    "基準後入金回数",
+    "基準後利用回数",
+    "当月入金回数",
+    "当月利用回数",
+    "当月不足回数",
+    "確認ステータス",
+    "メモ"
   ]];
 
   users.forEach(user => {
     const userName = user.userName;
     const unitPrice = user.unitPrice || existingMemoMap[userName]?.unitPrice || DEFAULT_REHAB_UNIT_PRICE;
+    const baseline = baselineMap[normalizeName_(userName)] || {
+      baselineDate: "",
+      baselineBalance: 0,
+      memo: ""
+    };
     const paidAmount = paymentMap[userName]?.total || 0;
     const lastPaymentDate = paymentMap[userName]?.lastDate || "";
     const lastPaymentAmount = paymentMap[userName]?.lastAmount || "";
-    const usedCount = usageMap[userName] || 0;
+    const usedCount = usageMap[userName]?.total || 0;
 
     const paidCount = Math.floor(paidAmount / unitPrice);
-    const couponBalance = paidCount - usedCount;
-    const unpaidAmount = Math.max((usedCount * unitPrice) - paidAmount, 0);
+    const couponBalance = (Number(baseline.baselineBalance) || 0) + paidCount - usedCount;
+    const unpaidAmount = Math.max(couponBalance < 0 ? Math.abs(couponBalance) * unitPrice : 0, 0);
     const shortageAmount = unpaidAmount;
-    const memo = existingMemoMap[userName]?.memo || "";
+    const currentMonthPayment = paymentMap[userName]?.monthly?.[currentMonthKey] || { amount: 0 };
+    const monthPaidCount = Math.floor((currentMonthPayment.amount || 0) / unitPrice);
+    const monthUsedCount = usageMap[userName]?.monthly?.[currentMonthKey] || 0;
+    const monthShortageCount = Math.max(monthUsedCount - monthPaidCount, 0);
+    const status = getCouponStatus_(couponBalance, monthUsedCount, monthPaidCount, baseline);
+    const memo = baseline.memo || existingMemoMap[userName]?.memo || "";
 
     output.push([
       userName,
@@ -5808,12 +5836,33 @@ function updateCouponManagement() {
       lastPaymentAmount,
       unitPrice,
       shortageAmount,
+      baseline.baselineDate || "",
+      baseline.baselineDate ? Number(baseline.baselineBalance) || 0 : "",
+      paidCount,
+      usedCount,
+      monthPaidCount,
+      monthUsedCount,
+      monthShortageCount,
+      status,
       memo
     ]);
   });
 
   couponSheet.clearContents();
   couponSheet.getRange(1, 1, output.length, output[0].length).setValues(output);
+  couponSheet.setFrozenRows(1);
+  couponSheet.getRange(1, 1, 1, output[0].length)
+    .setBackground("#1f2933")
+    .setFontColor("#ffffff")
+    .setFontWeight("bold");
+  couponSheet.getRange(1, 1, Math.max(output.length, 1), output[0].length).setWrap(true);
+}
+
+function getCouponStatus_(couponBalance, monthUsedCount, monthPaidCount, baseline) {
+  if (!baseline || !baseline.baselineDate) return "基準未設定";
+  if (couponBalance < 0) return monthUsedCount > 0 && monthPaidCount === 0 ? "当月未入金" : "不足";
+  if (couponBalance > 0) return "残数あり";
+  return "OK";
 }
 
 function getCouponUsers_(userSheet) {
@@ -5835,7 +5884,7 @@ function getCouponUsers_(userSheet) {
   return users;
 }
 
-function getUserPaymentMap_(nyushukkinSheet) {
+function getUserPaymentMap_(nyushukkinSheet, baselineMap) {
   const values = nyushukkinSheet.getDataRange().getValues();
   const map = {};
 
@@ -5847,16 +5896,23 @@ function getUserPaymentMap_(nyushukkinSheet) {
 
     if (!isOnOrAfterCouponStart_(tradeDate)) continue;
     if (!userName || inAmount <= 0 || status !== "照合済") continue;
+    if (!isAfterCouponBaseline_(tradeDate, baselineMap, userName)) continue;
 
     if (!map[userName]) {
       map[userName] = {
         total: 0,
         lastDate: "",
-        lastAmount: ""
+        lastAmount: "",
+        monthly: {}
       };
     }
 
     map[userName].total += inAmount;
+    const ymKey = getCouponMonthKey_(tradeDate);
+    if (ymKey) {
+      if (!map[userName].monthly[ymKey]) map[userName].monthly[ymKey] = { amount: 0 };
+      map[userName].monthly[ymKey].amount += inAmount;
+    }
     if (isLaterCouponDate_(tradeDate, map[userName].lastDate)) {
       map[userName].lastDate = tradeDate;
       map[userName].lastAmount = inAmount;
@@ -5876,9 +5932,10 @@ function isLaterCouponDate_(candidateValue, currentValue) {
   return candidateDate.getTime() > currentDate.getTime();
 }
 
-function getUserUsageMap_(visitSheet) {
+function getUserUsageMap_(visitSheet, baselineMap) {
   const values = visitSheet.getDataRange().getValues();
   const map = {};
+  const seenVisitKeys = {};
 
   for (let i = 1; i < values.length; i++) {
     const visitDate = values[i][0];
@@ -5888,12 +5945,92 @@ function getUserUsageMap_(visitSheet) {
     if (!isOnOrAfterCouponStart_(visitDate)) continue;
     if (type !== "終了") continue;
     if (!userName || isAmbiguousUserName_(userName) || userName === "不明") continue;
+    if (!isAfterCouponBaseline_(visitDate, baselineMap, userName)) continue;
 
-    if (!map[userName]) map[userName] = 0;
-    map[userName] += 1;
+    const visitKey = normalizeName_(userName) + "|" + getCouponDateKey_(visitDate);
+    if (seenVisitKeys[visitKey]) continue;
+    seenVisitKeys[visitKey] = true;
+
+    if (!map[userName]) {
+      map[userName] = {
+        total: 0,
+        monthly: {}
+      };
+    }
+    map[userName].total += 1;
+
+    const ymKey = getCouponMonthKey_(visitDate);
+    if (ymKey) {
+      if (!map[userName].monthly[ymKey]) map[userName].monthly[ymKey] = 0;
+      map[userName].monthly[ymKey] += 1;
+    }
   }
 
   return map;
+}
+
+function getCouponBaselineMap_(ss) {
+  const sheet = ensureCouponBaselineSheet_(ss);
+  const values = sheet.getDataRange().getValues();
+  const map = {};
+
+  for (let i = 1; i < values.length; i++) {
+    const userName = String(values[i][0] || "").trim();
+    if (!userName) continue;
+
+    map[normalizeName_(userName)] = {
+      baselineDate: values[i][1] || "",
+      baselineBalance: Number(values[i][2]) || 0,
+      memo: values[i][3] || ""
+    };
+  }
+
+  return map;
+}
+
+function ensureCouponBaselineSheet_(ss) {
+  const headers = ["利用者名", "基準日", "基準残数", "管理メモ"];
+  let sheet = ss.getSheetByName(COUPON_BASELINE_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(COUPON_BASELINE_SHEET_NAME);
+  }
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, headers.length)
+    .setBackground("#1f2933")
+    .setFontColor("#ffffff")
+    .setFontWeight("bold");
+  sheet.setColumnWidth(1, 140);
+  sheet.setColumnWidth(2, 120);
+  sheet.setColumnWidth(3, 100);
+  sheet.setColumnWidth(4, 360);
+
+  return sheet;
+}
+
+function isAfterCouponBaseline_(value, baselineMap, userName) {
+  const baseline = baselineMap && baselineMap[normalizeName_(userName)];
+  if (!baseline || !baseline.baselineDate) return true;
+
+  const targetDate = parseDateForCoupon_(value);
+  const baselineDate = parseDateForCoupon_(baseline.baselineDate);
+
+  if (!targetDate || !baselineDate) return true;
+  return targetDate.getTime() > baselineDate.getTime();
+}
+
+function getCouponDateKey_(value) {
+  const date = parseDateForCoupon_(value);
+  if (!date) return String(value || "").trim();
+  return Utilities.formatDate(date, "Asia/Tokyo", "yyyy-MM-dd");
+}
+
+function getCouponMonthKey_(value) {
+  const date = parseDateForCoupon_(value);
+  if (!date) return "";
+  return Utilities.formatDate(date, "Asia/Tokyo", "yyyy-MM");
 }
 
 function parseDateForCoupon_(value) {
@@ -5939,14 +6076,18 @@ function isOnOrAfterCouponStart_(value) {
 function getExistingCouponMemoMap_(couponSheet) {
   const values = couponSheet.getDataRange().getValues();
   const map = {};
+  const headerMap = getHeaderColumnMap_(couponSheet);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名"], 0);
+  const unitPriceCol = getColumnIndex_(headerMap, ["1回単価"], 5);
+  const memoCol = getColumnIndex_(headerMap, ["メモ"], 7);
 
   for (let i = 1; i < values.length; i++) {
-    const userName = values[i][0];
+    const userName = values[i][userNameCol];
     if (!userName) continue;
 
     map[userName] = {
-      unitPrice: Number(values[i][5]) || DEFAULT_REHAB_UNIT_PRICE,
-      memo: values[i][7] || ""
+      unitPrice: Number(values[i][unitPriceCol]) || DEFAULT_REHAB_UNIT_PRICE,
+      memo: values[i][memoCol] || ""
     };
   }
 
