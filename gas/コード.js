@@ -383,6 +383,13 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminUpdateLiffDisplayMaster") {
+    return liffResponse_(e, adminUpdateLiffDisplayMasterFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "adminImportUserQuestionnaire") {
     return liffResponse_(e, adminImportUserQuestionnaireFromLiff_(
       e.parameter.lineUserId,
@@ -7590,6 +7597,16 @@ function adminRunDataSetupAllFromLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return runDataSetupAllCore_(ss);
+}
+
+function adminUpdateLiffDisplayMasterFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  updateLiffDisplayMaster(true);
+  return {
+    success: true,
+    message: "LIFF表示用マスタを更新しました。"
+  };
 }
 
 function adminImportUserQuestionnaireFromLiff_(lineUserId, displayName) {
