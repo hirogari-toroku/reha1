@@ -390,6 +390,13 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminRunCouponAll") {
+    return liffResponse_(e, adminRunCouponAllFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "adminImportUserQuestionnaire") {
     return liffResponse_(e, adminImportUserQuestionnaireFromLiff_(
       e.parameter.lineUserId,
@@ -5476,11 +5483,19 @@ function normalizeKana_(text) {
  */
 function importGmoNyushukkinFromPaste() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = importGmoNyushukkinFromPasteCore_(ss);
+
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function importGmoNyushukkinFromPasteCore_(ss) {
   const pasteSheet = ss.getSheetByName(GMO_PASTE_SHEET_NAME);
 
   if (!pasteSheet) {
-    SpreadsheetApp.getUi().alert("GMO入出金CSV貼付シートがありません。" + String.fromCharCode(10) + "CSVを貼り付けるシートを作成してください。");
-    return;
+    return {
+      success: false,
+      message: "GMO入出金CSV貼付シートがありません。\nCSVを貼り付けるシートを作成してください。"
+    };
   }
 
   const startRow = 17; // 17行目から明細開始と想定
@@ -5491,15 +5506,25 @@ function importGmoNyushukkinFromPaste() {
     .getValues();
 
   if (values.length < 2) {
-    SpreadsheetApp.getUi().alert("GMO入出金CSV貼付シートにCSVデータを貼り付けてください。");
-    return;
+    return {
+      success: false,
+      message: "GMO入出金CSV貼付シートにCSVデータを貼り付けてください。"
+    };
   }
 
-  importGmoRows_(ss, values);
-  reconcileNyushukkinUsers();
+  const importedCount = importGmoRows_(ss, values);
+  const reconciledCount = reconcileNyushukkinUsersCore_(ss);
   updateCouponManagement();
 
-  SpreadsheetApp.getUi().alert("GMO入出金CSVを取り込み、回数券管理を更新しました。");
+  return {
+    success: true,
+    importedCount: importedCount,
+    reconciledCount: reconciledCount,
+    message:
+      "GMO入出金CSVを取り込み、回数券管理を更新しました。\n" +
+      "新規取込：" + importedCount + "件\n" +
+      "照合更新：" + reconciledCount + "件"
+  };
 }
 
 function importGmoRows_(ss, rows) {
@@ -5570,6 +5595,8 @@ function importGmoRows_(ss, rows) {
       .getRange(importSheet.getLastRow() + 1, 1, output.length, output[0].length)
       .setValues(output);
   }
+
+  return output.length;
 }
 
 function ensureNyushukkinHeader_(sheet) {
@@ -5645,16 +5672,20 @@ function makeNyushukkinKey_(tradeDate, summary, inAmount, outAmount, balance) {
 
 function reconcileNyushukkinUsers() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const updatedCount = reconcileNyushukkinUsersCore_(ss);
+  SpreadsheetApp.getUi().alert("入出金明細の再照合が完了しました。更新件数：" + updatedCount + "件");
+}
+
+function reconcileNyushukkinUsersCore_(ss) {
   const nyushukkinSheet = ss.getSheetByName("入出金明細");
   const userSheet = ss.getSheetByName("利用者マスタ");
 
   if (!nyushukkinSheet || !userSheet) {
-    SpreadsheetApp.getUi().alert("入出金明細または利用者マスタがありません。");
-    return;
+    return 0;
   }
 
   const values = nyushukkinSheet.getDataRange().getValues();
-  if (values.length < 2) return;
+  if (values.length < 2) return 0;
 
   const userMap = getUserKanaMap_(userSheet);
   let updatedCount = 0;
@@ -5681,7 +5712,7 @@ function reconcileNyushukkinUsers() {
     }
   }
 
-  SpreadsheetApp.getUi().alert("入出金明細の再照合が完了しました。更新件数：" + updatedCount + "件");
+  return updatedCount;
 }
 
 /**
@@ -7633,6 +7664,12 @@ function adminUpdateLiffDisplayMasterFromLiff_(lineUserId, displayName) {
     success: true,
     message: "LIFF表示用マスタを更新しました。"
   };
+}
+
+function adminRunCouponAllFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return importGmoNyushukkinFromPasteCore_(ss);
 }
 
 function adminImportUserQuestionnaireFromLiff_(lineUserId, displayName) {
