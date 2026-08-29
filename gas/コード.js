@@ -5513,16 +5513,19 @@ function importGmoNyushukkinFromPasteCore_(ss) {
   }
 
   const importedCount = importGmoRows_(ss, values);
+  const removedDuplicateCount = dedupeNyushukkinRows_(ss);
   const reconciledCount = reconcileNyushukkinUsersCore_(ss);
   updateCouponManagement();
 
   return {
     success: true,
     importedCount: importedCount,
+    removedDuplicateCount: removedDuplicateCount,
     reconciledCount: reconciledCount,
     message:
       "GMO入出金CSVを取り込み、回数券管理を更新しました。\n" +
       "新規取込：" + importedCount + "件\n" +
+      "重複整理：" + removedDuplicateCount + "件\n" +
       "照合更新：" + reconciledCount + "件"
   };
 }
@@ -5663,11 +5666,50 @@ function getExistingNyushukkinKeys_(sheet) {
 function makeNyushukkinKey_(tradeDate, summary, inAmount, outAmount, balance) {
   return [
     String(tradeDate || "").trim(),
-    String(summary || "").trim(),
+    normalizeNyushukkinSummaryForKey_(summary),
     Number(inAmount) || 0,
     Number(outAmount) || 0,
     Number(balance) || 0
   ].join("|");
+}
+
+function normalizeNyushukkinSummaryForKey_(summary) {
+  return normalizeKana_(summary)
+    .replace(/[　\s]/g, "")
+    .replace(/[－ーｰ]/g, "ー");
+}
+
+function dedupeNyushukkinRows_(ss) {
+  const sheet = ss.getSheetByName("入出金明細");
+  if (!sheet || sheet.getLastRow() < 3) return 0;
+
+  const values = sheet.getDataRange().getValues();
+  const seen = {};
+  const duplicateRows = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const key = makeNyushukkinKey_(
+      row[0],
+      row[1],
+      row[2],
+      row[3],
+      row[4]
+    );
+
+    if (seen[key]) {
+      duplicateRows.push(i + 1);
+      continue;
+    }
+
+    seen[key] = true;
+  }
+
+  for (let i = duplicateRows.length - 1; i >= 0; i--) {
+    sheet.deleteRow(duplicateRows[i]);
+  }
+
+  return duplicateRows.length;
 }
 
 function reconcileNyushukkinUsers() {
@@ -5815,11 +5857,23 @@ function getUserPaymentMap_(nyushukkinSheet) {
     }
 
     map[userName].total += inAmount;
-    map[userName].lastDate = tradeDate;
-    map[userName].lastAmount = inAmount;
+    if (isLaterCouponDate_(tradeDate, map[userName].lastDate)) {
+      map[userName].lastDate = tradeDate;
+      map[userName].lastAmount = inAmount;
+    }
   }
 
   return map;
+}
+
+function isLaterCouponDate_(candidateValue, currentValue) {
+  const candidateDate = parseDateForCoupon_(candidateValue);
+  const currentDate = parseDateForCoupon_(currentValue);
+
+  if (!candidateDate) return false;
+  if (!currentDate) return true;
+
+  return candidateDate.getTime() > currentDate.getTime();
 }
 
 function getUserUsageMap_(visitSheet) {
