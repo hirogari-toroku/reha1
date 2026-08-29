@@ -2706,7 +2706,7 @@ function parseVisitResult_(ss, text, receivedAt, staffName, userId) {
 
   if (/終了|終わり|完了|終えました|終わりました/.test(compact)) {
     type = "終了";
-  } else if (/開始|始めます|入ります|入りました|介入|訪問|リハ開始|リハビリ開始/.test(compact)) {
+  } else if (/開始|始めます|入ります|入りました|介入|訪問します|訪問しました|訪問開始|リハ開始|リハビリ開始/.test(compact)) {
     type = "開始";
   }
 
@@ -2771,6 +2771,10 @@ function extractUserNameFromText_(text) {
   let name = text;
 
   name = name
+    .replace(/^お疲れ(?:様|さま)(?:です|でした)?/g, "")
+    .replace(/^おつかれ(?:様|さま)(?:です|でした)?/g, "")
+    .replace(/^お世話になります/g, "")
+    .replace(/^お世話になっております/g, "")
     .replace(/只今より/g, "")
     .replace(/リハビリ/g, "")
     .replace(/リハ/g, "")
@@ -2795,10 +2799,16 @@ function extractUserNameFromText_(text) {
   const match = name.match(/(.+?様)/);
 
   if (match) {
-    return cleanupUserName_(match[1]);
+    const matchedName = cleanupUserName_(match[1]);
+    return isGreetingUserNameCandidate_(matchedName) ? "" : matchedName;
   }
 
-  return cleanupUserName_(name);
+  const cleanedName = cleanupUserName_(name);
+  return isGreetingUserNameCandidate_(cleanedName) ? "" : cleanedName;
+}
+
+function isGreetingUserNameCandidate_(name) {
+  return /^(お疲れ|おつかれ|お世話になります|お世話になっております)$/.test(String(name || "").trim());
 }
 
 /**
