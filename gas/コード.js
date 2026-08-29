@@ -1855,10 +1855,13 @@ function enrichLiffScheduleItemsWithUserResources_(ss, schedules) {
   if (!schedules || schedules.length === 0) return schedules;
 
   const userResourceMap = getUserResourceMap_(ss);
+  const couponDisplayMap = getCouponDisplayMap_(ss);
   schedules.forEach(item => {
     const resources = userResourceMap[normalizeName_(item.userName)] || {};
+    const coupon = couponDisplayMap[normalizeName_(item.userName)] || null;
     item.chartUrl = resources.chartUrl || "";
     item.basicInfoUrl = resources.basicInfoUrl || "";
+    if (coupon) item.coupon = coupon;
   });
 
   return schedules;
@@ -5517,17 +5520,20 @@ function importGmoNyushukkinFromPasteCore_(ss) {
   const removedDuplicateCount = dedupeNyushukkinRows_(ss);
   const reconciledCount = reconcileNyushukkinUsersCore_(ss);
   updateCouponManagement();
+  const couponReport = buildCouponUpdateReport_(ss);
 
   return {
     success: true,
     importedCount: importedCount,
     removedDuplicateCount: removedDuplicateCount,
     reconciledCount: reconciledCount,
+    couponReport: couponReport,
     message:
       "GMO入出金CSVを取り込み、回数券管理を更新しました。\n" +
       "新規取込：" + importedCount + "件\n" +
       "重複整理：" + removedDuplicateCount + "件\n" +
-      "照合更新：" + reconciledCount + "件"
+      "照合更新：" + reconciledCount + "件" +
+      formatCouponUpdateReportMessage_(couponReport)
   };
 }
 
@@ -5863,6 +5869,147 @@ function getCouponStatus_(couponBalance, monthUsedCount, monthPaidCount, baselin
   if (couponBalance < 0) return monthUsedCount > 0 && monthPaidCount === 0 ? "当月未入金" : "不足";
   if (couponBalance > 0) return "残数あり";
   return "OK";
+}
+
+function getCouponDisplayMap_(ss) {
+  const sheet = ss.getSheetByName(COUPON_SHEET_NAME);
+  const map = {};
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  const values = sheet.getDataRange().getValues();
+  const headerMap = getHeaderColumnMap_(sheet);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名"], 0);
+  const balanceCol = getColumnIndex_(headerMap, ["回数券残数"], 1);
+  const unpaidCol = getColumnIndex_(headerMap, ["未払い残高", "不足金額"], 2);
+  const monthShortageCol = getColumnIndex_(headerMap, ["当月不足回数"], -1);
+  const statusCol = getColumnIndex_(headerMap, ["確認ステータス"], -1);
+
+  for (let i = 1; i < values.length; i++) {
+    const userName = String(values[i][userNameCol] || "").trim();
+    if (!userName) continue;
+
+    map[normalizeName_(userName)] = {
+      balance: Number(values[i][balanceCol]) || 0,
+      unpaidAmount: Number(values[i][unpaidCol]) || 0,
+      monthShortageCount: monthShortageCol >= 0 ? Number(values[i][monthShortageCol]) || 0 : 0,
+      status: statusCol >= 0 ? String(values[i][statusCol] || "").trim() : ""
+    };
+  }
+
+  return map;
+}
+
+function buildCouponUpdateReport_(ss) {
+  const sheet = ss.getSheetByName(COUPON_SHEET_NAME);
+  const report = {
+    negativeBalances: [],
+    lowBalances: [],
+    baselineUnset: [],
+    unreconciledDeposits: []
+  };
+
+  if (sheet && sheet.getLastRow() >= 2) {
+    const values = sheet.getDataRange().getValues();
+    const headerMap = getHeaderColumnMap_(sheet);
+    const userNameCol = getColumnIndex_(headerMap, ["利用者名"], 0);
+    const balanceCol = getColumnIndex_(headerMap, ["回数券残数"], 1);
+    const unpaidCol = getColumnIndex_(headerMap, ["未払い残高", "不足金額"], 2);
+    const statusCol = getColumnIndex_(headerMap, ["確認ステータス"], -1);
+
+    for (let i = 1; i < values.length; i++) {
+      const userName = String(values[i][userNameCol] || "").trim();
+      if (!userName) continue;
+
+      const balance = Number(values[i][balanceCol]) || 0;
+      const unpaidAmount = Number(values[i][unpaidCol]) || 0;
+      const status = statusCol >= 0 ? String(values[i][statusCol] || "").trim() : "";
+      const item = {
+        userName: userName,
+        balance: balance,
+        unpaidAmount: unpaidAmount,
+        status: status
+      };
+
+      if (balance < 0) {
+        report.negativeBalances.push(item);
+      } else if (balance <= 1) {
+        report.lowBalances.push(item);
+      }
+
+      if (status === "基準未設定") {
+        report.baselineUnset.push(item);
+      }
+    }
+  }
+
+  report.unreconciledDeposits = getUnreconciledDepositItems_(ss);
+  return report;
+}
+
+function getUnreconciledDepositItems_(ss) {
+  const sheet = ss.getSheetByName("入出金明細");
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const values = sheet.getDataRange().getValues();
+  const headerMap = getHeaderColumnMap_(sheet);
+  const dateCol = getColumnIndex_(headerMap, ["取引日", "日付"], 0);
+  const summaryCol = getColumnIndex_(headerMap, ["摘要"], 1);
+  const inAmountCol = getColumnIndex_(headerMap, ["入金額", "入金金額"], 2);
+  const userNameCol = getColumnIndex_(headerMap, ["利用者名"], 6);
+  const statusCol = getColumnIndex_(headerMap, ["照合結果"], 7);
+  const items = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const inAmount = Number(values[i][inAmountCol]) || 0;
+    const status = String(values[i][statusCol] || "").trim();
+    const userName = String(values[i][userNameCol] || "").trim();
+    const summary = String(values[i][summaryCol] || "").trim();
+
+    if (inAmount <= 0) continue;
+    if (status === "照合済" || userName) continue;
+    if (isNonUserBankDepositSummary_(summary)) continue;
+
+    items.push({
+      rowNumber: i + 1,
+      tradeDate: values[i][dateCol],
+      summary: summary,
+      amount: inAmount
+    });
+  }
+
+  return items.slice(-20);
+}
+
+function isNonUserBankDepositSummary_(summary) {
+  return /利息|キャッシュバック|ｷﾔﾂｼﾕﾊﾞﾂｸ|ＭＡＳＴＥＲＣＡＲＤ|Mastercard/i.test(String(summary || ""));
+}
+
+function formatCouponUpdateReportMessage_(report) {
+  if (!report) return "";
+
+  const lines = [];
+  const negatives = report.negativeBalances || [];
+  const lows = report.lowBalances || [];
+  const unset = report.baselineUnset || [];
+  const deposits = report.unreconciledDeposits || [];
+
+  if (negatives.length) {
+    lines.push("残数マイナス：" + negatives.map(item => item.userName + " " + item.balance).join("、"));
+  }
+
+  if (lows.length) {
+    lines.push("残数少なめ：" + lows.map(item => item.userName + " " + item.balance).join("、"));
+  }
+
+  if (unset.length) {
+    lines.push("基準未設定：" + unset.map(item => item.userName).join("、"));
+  }
+
+  if (deposits.length) {
+    lines.push("未照合入金：" + deposits.length + "件");
+  }
+
+  return lines.length ? "\n\n" + lines.join("\n") : "";
 }
 
 function getCouponUsers_(userSheet) {

@@ -356,6 +356,36 @@
       white-space: nowrap;
     }
 
+    .coupon-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      margin-left: 8px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #ecfdf3;
+      color: #057a38;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    .coupon-pill.warn {
+      background: #fff7e6;
+      color: #985c00;
+    }
+
+    .coupon-pill.danger {
+      background: #fff1f0;
+      color: #b42318;
+    }
+
+    .coupon-pill.neutral {
+      background: #eef2f6;
+      color: #536271;
+    }
+
     .submit {
       margin-top: 18px;
       padding: 13px;
@@ -1235,6 +1265,30 @@
       container.appendChild(link);
     }
 
+    function appendCouponBadge(container, item) {
+      if (!item || !item.coupon) return;
+
+      const coupon = item.coupon;
+      const balance = Number(coupon.balance);
+      const status = String(coupon.status || "");
+      const label = isNaN(balance)
+        ? status
+        : "残数 " + balance + (status && status !== "OK" ? "・" + status : "");
+      if (!label) return;
+
+      const badge = document.createElement("span");
+      badge.className = "coupon-pill";
+      if (status === "基準未設定") {
+        badge.classList.add("neutral");
+      } else if (balance < 0 || status === "当月未入金" || status === "不足") {
+        badge.classList.add("danger");
+      } else if (balance <= 1 || status === "残数あり") {
+        badge.classList.add("warn");
+      }
+      badge.textContent = label;
+      container.appendChild(badge);
+    }
+
     function setResourceData(data) {
       staffResources = data && data.staffResources ? data.staffResources : {};
       userResourceMap = {};
@@ -1794,7 +1848,10 @@
         name.textContent = data.targetType === "user"
           ? (item.visitDate || "")
           : (item.visitDate || "") + "　" + (item.userName || "");
-        if (data.targetType === "staff") appendTitleChartLink(name, item);
+        if (data.targetType === "staff") {
+          appendTitleChartLink(name, item);
+          appendCouponBadge(name, item);
+        }
 
         const status = document.createElement("span");
         status.className = "status-pill";
@@ -1938,6 +1995,7 @@
         const name = document.createElement("span");
         name.textContent = item.visitDate + "　" + item.userName;
         appendTitleChartLink(name, item);
+        appendCouponBadge(name, item);
 
         const status = document.createElement("span");
         status.className = "status-pill";
