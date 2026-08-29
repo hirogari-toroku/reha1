@@ -6500,7 +6500,15 @@ function formatScheduleVisitComparisonSheet_(sheet, columnCount) {
   }
 
   sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), columnCount).createFilter();
-  sheet.autoResizeColumns(1, columnCount);
+  sheet.setRowHeight(1, 48);
+
+  const columnWidths = [100, 55, 120, 130, 90, 90, 100, 110, 180, 330, 280];
+  columnWidths.slice(0, columnCount).forEach((width, index) => {
+    sheet.setColumnWidth(index + 1, width);
+  });
+  if (columnCount > columnWidths.length) {
+    sheet.setColumnWidths(columnWidths.length + 1, columnCount - columnWidths.length, 120);
+  }
 }
 
 function setupMasterIdColumns() {
