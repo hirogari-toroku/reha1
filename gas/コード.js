@@ -7,13 +7,19 @@ const STAFF_SHEET_NAME = "スタッフマスタ";
 const STAFF_USER_MASTER_SHEET_NAME = "スタッフ利用者マスタ";
 const LIFF_DISPLAY_MASTER_SHEET_NAME = "LIFF表示用マスタ";
 const LINE_USER_DIRECTORY_SHEET_NAME = "LINEユーザー一覧";
+const STAFF_REGISTRATION_LOG_SHEET_NAME = "スタッフ登録処理ログ";
 const PAYROLL_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
+const STAFF_FOLDER_PARENT_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
+const INACTIVE_STAFF_FOLDER_ID = "1-0gLAE39SYujAwl-3ExG8r86bkihRbYD";
 const GMO_TRANSFER_CSV_CONFIRMED_FOLDER_ID = "1vTWdykjuj7fO27lmoCImPjy3TdNEb9Jp";
+const MAIN_SPREADSHEET_ID = "1M992L2LX1T_3DSKBiv-1_7-VLbApJHanjRD36XRfwuc";
 const GMO_PASTE_SHEET_NAME = "GMO入出金CSV貼付";
 const COUPON_SHEET_NAME = "回数券管理";
 const COUPON_BASELINE_SHEET_NAME = "回数券基準";
 const STAFF_QUESTIONNAIRE_SPREADSHEET_ID = "1sQzA9oHCMH712l8gNuoZxrB29eX_UeQg5zHgy_1_tQw";
 const STAFF_QUESTIONNAIRE_SHEET_ID = 1876133724;
+const STAFF_BANK_QUESTIONNAIRE_SPREADSHEET_ID = "1gPLvHUKwYLlB5yaN3vB_QQSZOeBe41JOXGMahvPg8eg";
+const STAFF_BANK_QUESTIONNAIRE_SHEET_ID = 399292105;
 const USER_QUESTIONNAIRE_SPREADSHEET_ID = "1y8h9EZG47uYVuoV3K1L_m9-JaDP8GRLQ6ZZ-HpgPxKM";
 const USER_QUESTIONNAIRE_SHEET_ID = 1702028371;
 const USER_MASTER_SHEET_NAME = "利用者マスタ";
@@ -23,7 +29,10 @@ const REFERRAL_MANAGEMENT_SHEET_NAME = "紹介管理";
 const STAFF_ID_HEADER = "スタッフID";
 const USER_ID_HEADER = "利用者ID";
 const REFERRER_ID_HEADER = "紹介者ID";
+const STAFF_FOLDER_ID_HEADER = "スタッフフォルダID";
+const LEGACY_PAYROLL_FOLDER_ID_HEADER = "給与明細フォルダID";
 const STAFF_BANK_REGISTRATION_STATUS_HEADER = "振込先登録状況";
+const STAFF_GMAIL_STATUS_HEADER = "Gmail確認";
 const LIFF_STAFF_FOLDER_LINK_HEADER = "スタッフフォルダリンク";
 const LIFF_PAYSLIP_FOLDER_LINK_HEADER = "給与明細リンク";
 const USER_CHART_URL_HEADER = "カルテURL";
@@ -34,7 +43,7 @@ const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
 const PDF_EXPORT_WAIT_MS = 1000;
 const PDF_EXPORT_MAX_RETRIES = 5;
-const TEST_USER_NAME = "テスト 利用者";
+const TEST_USER_NAME = "テスト利用者";
 const ADMIN_LINE_USER_ID = "Uc21fa34144f5bc50c6e5324d5e4de344";
 const LIFF_DUPLICATE_VISIT_WINDOW_MS = 10 * 60 * 1000;
 const LIFF_INIT_CACHE_SECONDS = 1800;
@@ -44,7 +53,7 @@ const LIFF_SCHEDULE_FUTURE_MONTHS = 6;
 
 // スタッフマスタ固定列
 // A:スタッフ名 B:LINE表示名 C:LINEユーザーID D:LIFF用LINEユーザーID E:カレンダーID
-// F:銀行コード G:支店番号 H:預金種目 I:口座番号 J:受取人名 K:給与明細フォルダID L:住所
+// F:銀行コード G:支店番号 H:預金種目 I:口座番号 J:受取人名 K:スタッフフォルダID L:住所
 // 口座情報は初回スタッフ登録では取得せず、後から「振込先登録状況」で管理する
 const STAFF_COL_NAME = 0;
 const STAFF_COL_LINE_DISPLAY_NAME = 1;
@@ -2248,7 +2257,9 @@ function getStaffMasterColumnMap_(sheet) {
     accountType: getColumnIndex_(headerMap, ["預金種目"], STAFF_COL_ACCOUNT_TYPE),
     accountNumber: getColumnIndex_(headerMap, ["口座番号"], STAFF_COL_ACCOUNT_NUMBER),
     receiverName: getColumnIndex_(headerMap, ["受取人名"], STAFF_COL_RECEIVER_NAME),
-    payrollFolderId: getColumnIndex_(headerMap, ["給与明細フォルダID"], STAFF_COL_PAYROLL_FOLDER_ID),
+    bankName: getColumnIndex_(headerMap, ["銀行名"], -1),
+    branchName: getColumnIndex_(headerMap, ["支店名"], -1),
+    payrollFolderId: getColumnIndex_(headerMap, [STAFF_FOLDER_ID_HEADER, LEGACY_PAYROLL_FOLDER_ID_HEADER], STAFF_COL_PAYROLL_FOLDER_ID),
     address: getColumnIndex_(headerMap, ["住所"], STAFF_COL_ADDRESS),
     bankRegistrationStatus: getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1)
   };
@@ -3204,6 +3215,7 @@ function createPayrollSummary() {
 
   const TAX_RATE = 0.03063; // 源泉徴収税率
   const summary = {};
+  const countedVisitMap = {};
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
@@ -3215,12 +3227,15 @@ function createPayrollSummary() {
 
     if (type !== "終了") continue;
     if (!staffName || !userName) continue;
+    if (isTestUserName_(userName)) continue;
 
     const staffKey = normalizeName_(staffName);
     const formalStaffName = staffFormalNameMap[staffKey] || staffName;
+    const receivedAtDate = new Date(receivedAt);
+    if (isNaN(receivedAtDate.getTime())) continue;
 
     const ym = Utilities.formatDate(
-      new Date(receivedAt),
+      receivedAtDate,
       "Asia/Tokyo",
       "yyyy-MM"
     );
@@ -3244,6 +3259,20 @@ function createPayrollSummary() {
       summary[key].missing.push(userName + "（同姓複数の可能性あり）");
       continue;
     }
+
+    const visitDateKey = getPayrollVisitDateKey_(row, receivedAt);
+    const countedVisitKey = [
+      ym,
+      normalizeName_(staffName),
+      normalizeName_(resolvedUserName),
+      visitDateKey
+    ].join("_");
+
+    if (countedVisitMap[countedVisitKey]) {
+      summary[key].missing.push(resolvedUserName + "（" + visitDateKey + " 重複除外）");
+      continue;
+    }
+    countedVisitMap[countedVisitKey] = true;
 
     const masterKey = normalizeName_(staffName) + "_" + normalizeName_(resolvedUserName);
     const master = masterMap[masterKey];
@@ -3291,6 +3320,8 @@ function createPayrollSummary() {
     const tax = Math.floor(taxablePay * TAX_RATE);
     const payment = taxablePay + item.travelCost - tax;
 
+    if (payment <= 0) return;
+
     output.push([
       item.ym,
       transferDate,
@@ -3321,6 +3352,38 @@ function createPayrollSummary() {
       .getRange(2, 1, output.length - 1, output[0].length)
       .setFontWeight("normal");
   }
+}
+
+function getPayrollVisitDateKey_(row, fallbackDate) {
+  const explicitDate = row && row.length > 9 ? row[9] : "";
+  const targetDate = explicitDate || fallbackDate;
+
+  if (Object.prototype.toString.call(targetDate) === "[object Date]") {
+    return Utilities.formatDate(targetDate, "Asia/Tokyo", "yyyy-MM-dd");
+  }
+
+  const text = String(targetDate || "").trim();
+  let match = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+
+  if (match) {
+    return match[1] + "-" + String(Number(match[2])).padStart(2, "0") + "-" + String(Number(match[3])).padStart(2, "0");
+  }
+
+  match = text.match(/^(\d{1,2})\s*[\/月]\s*(\d{1,2})\s*日?$/);
+  if (match) {
+    const baseDate = Object.prototype.toString.call(fallbackDate) === "[object Date]"
+      ? fallbackDate
+      : new Date(fallbackDate);
+    const year = !isNaN(baseDate.getTime()) ? baseDate.getFullYear() : new Date().getFullYear();
+    return year + "-" + String(Number(match[1])).padStart(2, "0") + "-" + String(Number(match[2])).padStart(2, "0");
+  }
+
+  const parsedDate = new Date(text);
+  if (!isNaN(parsedDate.getTime())) {
+    return Utilities.formatDate(parsedDate, "Asia/Tokyo", "yyyy-MM-dd");
+  }
+
+  return text || "日付不明";
 }
 
 function getStaffUserMasterMap_(ss) {
@@ -3557,6 +3620,7 @@ function createPayrollPdfFromTemplate() {
     const payment = row[11];
 
     if (!ym || !staffName) continue;
+    if ((Number(payment) || 0) <= 0) continue;
 
     if (!targetYmKeys[ymKey]) {
       oldMonthSkippedCount++;
@@ -4116,7 +4180,7 @@ function hasFileByName_(folder, fileName) {
  * H列：預金種目
  * I列：口座番号
  * J列：受取人名
- * K列：給与明細フォルダID
+ * K列：スタッフフォルダID
  * L列：住所
  */
 function getStaffBankMap_(ss) {
@@ -4182,6 +4246,20 @@ function formatCode_(value, length) {
  */
 function runPayrollAll() {
   createPayrollSummary();
+  createWageLedger();
+  createPayrollPdfFromTemplate();
+  createGmoTransferCsv();
+}
+
+function runPayrollSummaryOnly() {
+  createPayrollSummary();
+  SpreadsheetApp.getUi().alert(
+    "給与集計だけ更新しました。\n" +
+    "内容を確認してから、必要に応じて「給与明細PDF・振込CSVを作成」を実行してください。"
+  );
+}
+
+function runPayrollFilesAfterReview() {
   createWageLedger();
   createPayrollPdfFromTemplate();
   createGmoTransferCsv();
@@ -4298,10 +4376,20 @@ function formatDateForKey_(value) {
 }
 
 /**
- * 共有フォルダに作成されたPDFを、スタッフ個別Googleドライブフォルダへ自動移動
+ * 共有フォルダに作成された給与明細PDFとGMO振込CSVを所定フォルダへ移動
  */
 function movePayrollPdfsToStaffFolders() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = movePayrollPdfsToStaffFoldersCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function movePayrollPdfsToStaffFoldersNoUi() {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  return movePayrollPdfsToStaffFoldersCore_(ss);
+}
+
+function movePayrollPdfsToStaffFoldersCore_(ss) {
   const staffFolderMap = getStaffPayrollFolderMap_(ss);
   const sourceFolder = DriveApp.getFolderById(PAYROLL_FOLDER_ID);
   const files = sourceFolder.getFilesByType(MimeType.PDF);
@@ -4331,9 +4419,13 @@ function movePayrollPdfsToStaffFolders() {
     movedCount++;
   }
 
+  const csvMoveResult = moveGmoTransferCsvFilesToConfirmedFolder_(sourceFolder);
+
   let message = "給与明細PDFの移動が完了しました。" + String.fromCharCode(10) +
     "移動件数：" + movedCount + "件" + String.fromCharCode(10) +
-    "未移動件数：" + skippedCount + "件";
+    "未移動件数：" + skippedCount + "件" + String.fromCharCode(10) +
+    String.fromCharCode(10) +
+    "GMO振込CSVの移動：" + csvMoveResult.movedCount + "件";
 
   if (skippedFiles.length > 0) {
     message += String.fromCharCode(10) + String.fromCharCode(10) +
@@ -4341,7 +4433,53 @@ function movePayrollPdfsToStaffFolders() {
       skippedFiles.join(String.fromCharCode(10));
   }
 
-  SpreadsheetApp.getUi().alert(message);
+  if (csvMoveResult.skippedFiles.length > 0) {
+    message += String.fromCharCode(10) + String.fromCharCode(10) +
+      "移動しなかったGMO振込CSV：" + String.fromCharCode(10) +
+      csvMoveResult.skippedFiles.join(String.fromCharCode(10));
+  }
+
+  return {
+    success: true,
+    movedCount: movedCount,
+    skippedCount: skippedCount,
+    skippedFiles: skippedFiles,
+    csvMovedCount: csvMoveResult.movedCount,
+    csvSkippedFiles: csvMoveResult.skippedFiles,
+    message: message
+  };
+}
+
+function moveGmoTransferCsvFilesToConfirmedFolder_(sourceFolder) {
+  const confirmedFolder = DriveApp.getFolderById(GMO_TRANSFER_CSV_CONFIRMED_FOLDER_ID);
+  const files = sourceFolder.getFiles();
+  let movedCount = 0;
+  const skippedFiles = [];
+
+  while (files.hasNext()) {
+    const file = files.next();
+    const fileName = file.getName();
+
+    if (!isGmoTransferCsvFileName_(fileName)) continue;
+
+    if (hasFileByName_(confirmedFolder, fileName)) {
+      skippedFiles.push(fileName + "（確定フォルダに同名ファイルあり）");
+      continue;
+    }
+
+    file.moveTo(confirmedFolder);
+    movedCount++;
+  }
+
+  return {
+    movedCount: movedCount,
+    skippedFiles: skippedFiles
+  };
+}
+
+function isGmoTransferCsvFileName_(fileName) {
+  const text = String(fileName || "");
+  return text.indexOf("GMO振込CSV_") === 0 && /\.csv$/i.test(text);
 }
 
 function getStaffPayrollFolderMap_(ss) {
@@ -6247,7 +6385,7 @@ function runCouponAll() {
 }
 
 /**
- * 練習用のテスト利用者を全スタッフの担当利用者に追加する
+ * 練習用のテスト利用者を、担当利用者がいないスタッフと内田宗一郎に追加する
  */
 function addTestUserForAllStaff() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -6263,6 +6401,7 @@ function addTestUserForAllStaff() {
   const staffCols = getStaffMasterColumnMap_(staffSheet);
   const staffUserValues = staffUserSheet.getDataRange().getValues();
   const existing = {};
+  const hasRealUser = {};
   const rows = [];
 
   for (let i = 1; i < staffUserValues.length; i++) {
@@ -6270,11 +6409,18 @@ function addTestUserForAllStaff() {
     const userName = staffUserValues[i][1];
     const key = normalizeName_(staffName) + "|" + normalizeName_(userName);
     existing[key] = true;
+
+    if (staffName && userName && !isTestUserName_(userName)) {
+      hasRealUser[normalizeName_(staffName)] = true;
+    }
   }
 
   for (let i = 1; i < staffValues.length; i++) {
     const staffName = String(staffValues[i][staffCols.name] || "").trim();
     if (!staffName) continue;
+
+    const staffKey = normalizeName_(staffName);
+    if (hasRealUser[staffKey] && staffKey !== normalizeName_("内田宗一郎")) continue;
 
     const key = normalizeName_(staffName) + "|" + normalizeName_(TEST_USER_NAME);
     if (existing[key]) continue;
@@ -6294,7 +6440,7 @@ function addTestUserForAllStaff() {
   }
 
   updateLiffDisplayMaster(true);
-  SpreadsheetApp.getUi().alert("全スタッフへテスト利用者を追加しました。追加：" + rows.length + "件");
+  SpreadsheetApp.getUi().alert("担当利用者がいないスタッフと内田宗一郎へテスト利用者を追加しました。追加：" + rows.length + "件");
 }
 
 /**
@@ -6328,10 +6474,7 @@ function updateLiffDisplayMaster(suppressAlert) {
 
     if (!staffName) continue;
 
-    const users = usersByStaff[normalizeName_(staffName)] || [];
-    const displayUsers = [{ name: TEST_USER_NAME }].concat(
-      users.filter(user => normalizeName_(user.name) !== normalizeName_(TEST_USER_NAME))
-    );
+    const displayUsers = usersByStaff[normalizeName_(staffName)] || [];
     const staffResources = staffResourcesByName[normalizeName_(staffName)] || {};
 
     rows.push([
@@ -7160,7 +7303,7 @@ function runDataSetupAllCore_(ss) {
     "紹介者紐づけ更新：" + referralResult.userUpdatedCount + "件\n" +
     "紹介者確認が必要：" + referralResult.unmatchedCount + "件\n" +
     "振込先登録状況更新：" + bankStatusResult.updatedCount + "件\n" +
-    "フォルダ管理：既存の給与明細フォルダIDを保持（自動作成なし）"
+    "フォルダ管理：既存のスタッフフォルダIDを保持（自動作成なし）"
   );
 
   updateLiffDisplayMaster(true);
@@ -8194,6 +8337,92 @@ function importStaffQuestionnaireToStaffMaster() {
   SpreadsheetApp.getUi().alert(result.message);
 }
 
+function importStaffQuestionnaireToStaffMasterNoUi() {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  return importStaffQuestionnaireToStaffMasterCore_(ss);
+}
+
+function importStaffBankQuestionnaireToStaffMaster() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = importStaffBankQuestionnaireToStaffMasterCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function importStaffBankQuestionnaireToStaffMasterNoUi() {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  return importStaffBankQuestionnaireToStaffMasterCore_(ss);
+}
+
+function fillStaffReceiverNamesFromKana() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = fillStaffReceiverNamesFromKanaCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function fillStaffReceiverNamesFromKanaNoUi() {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  return fillStaffReceiverNamesFromKanaCore_(ss);
+}
+
+function syncExistingStaffFolderIds() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = syncExistingStaffFolderIdsCore_(ss);
+  SpreadsheetApp.getUi().alert(result.message);
+}
+
+function createAndShareStaffFolders() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "スタッフフォルダ作成・共有の確認",
+    "スタッフフォルダIDが空欄のスタッフについて、既存フォルダを確認したうえで、見つからない場合だけ新規フォルダを作成し、Gmailアドレスへ共有します。\n\n休止中スタッフフォルダも確認します。\n実行してよろしいですか？",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response !== ui.Button.OK) {
+    ui.alert("スタッフフォルダ作成・共有はキャンセルしました。");
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = createAndShareStaffFoldersCore_(ss);
+  ui.alert(result.message);
+}
+
+function syncExistingStaffFolderIdsNoUi() {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  return syncExistingStaffFolderIdsCore_(ss);
+}
+
+function createAndShareStaffFoldersNoUi() {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  return createAndShareStaffFoldersCore_(ss);
+}
+
+function setupStaffQuestionnaireAutoImportTrigger() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "スタッフ登録フォーム自動処理の確認",
+    "スタッフ登録フォームの回答後に、スタッフマスタ取込・既存フォルダ確認・必要時のスタッフフォルダ作成・Gmail共有・ログ記録を自動実行するトリガーを設定します。\n\n相手には共有通知メールが届く可能性があります。\n設定してよろしいですか？",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response !== ui.Button.OK) {
+    ui.alert("スタッフ登録フォーム自動処理の設定はキャンセルしました。");
+    return;
+  }
+
+  const result = setupStaffQuestionnaireAutoImportTriggerCore_();
+  ui.alert(result.message);
+}
+
+function setupStaffQuestionnaireAutoImportTriggerNoUi() {
+  return setupStaffQuestionnaireAutoImportTriggerCore_();
+}
+
+function handleStaffQuestionnaireFormSubmit(e) {
+  return runStaffQuestionnaireAutoImportCore_(e);
+}
+
 function importStaffQuestionnaireToStaffMasterCore_(ss) {
   const sourceSheet = getStaffQuestionnaireSourceSheet_();
   const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
@@ -8243,13 +8472,7 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
 
   for (let i = 1; i < sourceValues.length; i++) {
     const sourceRow = sourceValues[i];
-    const staffName = getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-      "スタッフ名",
-      "氏名",
-      "お名前",
-      "名前",
-      "フルネーム"
-    ], 1);
+    const staffName = getQuestionnaireStaffName_(sourceRow, sourceHeaderMap);
 
     if (!staffName) continue;
 
@@ -8314,7 +8537,7 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
       "LINE情報を同時反映：" + lineMatchedCount + "件\n" +
       "スタッフID追加：" + idResult.addedCount + "件\n" +
       "振込先情報：初回登録では取り込まず、必要時に別途登録します。\n" +
-      "フォルダ管理：既存の給与明細フォルダIDを保持し、自動作成・自動書き換えは行いません。"
+      "フォルダ管理：既存のスタッフフォルダIDを保持し、自動作成・自動書き換えは行いません。"
   };
 }
 
@@ -8335,6 +8558,701 @@ function getStaffQuestionnaireSourceSheet_() {
   }
 }
 
+function importStaffBankQuestionnaireToStaffMasterCore_(ss) {
+  const sourceSheet = getStaffBankQuestionnaireSourceSheet_();
+  const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
+
+  if (!staffSheet) {
+    return {
+      success: false,
+      updatedCount: 0,
+      message: "スタッフマスタシートがありません。"
+    };
+  }
+
+  if (!sourceSheet) {
+    return {
+      success: false,
+      updatedCount: 0,
+      message:
+        "口座登録フォームの回答スプレッドシートを開けませんでした。\n" +
+        "GAS実行アカウントに、口座登録フォーム回答シートの閲覧権限があるか確認してください。"
+    };
+  }
+
+  if (sourceSheet.getLastRow() < 2) {
+    return {
+      success: true,
+      updatedCount: 0,
+      message: "取込対象の口座登録回答はありません。"
+    };
+  }
+
+  ensureStaffMasterHeaders_(staffSheet);
+  ensureStaffMasterBankInfoColumns_(staffSheet);
+
+  const sourceValues = sourceSheet.getDataRange().getValues();
+  const sourceHeaderMap = getHeaderColumnMap_(sourceSheet);
+  const staffHeaderMap = getHeaderColumnMap_(staffSheet);
+  const staffCols = getStaffMasterColumnMap_(staffSheet);
+  const existingStaffs = getExistingStaffRowMap_(staffSheet, staffCols.name);
+  const unmatched = [];
+  const conflicts = [];
+  let updatedCount = 0;
+  let statusUpdatedCount = 0;
+
+  for (let i = 1; i < sourceValues.length; i++) {
+    const sourceRow = sourceValues[i];
+    const staffName = getQuestionnaireStaffName_(sourceRow, sourceHeaderMap);
+    if (!staffName) continue;
+
+    const staffInfo = existingStaffs[normalizeName_(staffName)];
+    if (!staffInfo || !staffInfo.rowNumber) {
+      unmatched.push(staffName);
+      continue;
+    }
+
+    const result = updateStaffBankInfoFromQuestionnaire_(
+      staffSheet,
+      staffInfo.rowNumber,
+      staffHeaderMap,
+      staffCols,
+      sourceRow,
+      sourceHeaderMap
+    );
+
+    if (result.updatedCount > 0) updatedCount++;
+    if (result.statusUpdated) statusUpdatedCount++;
+    if (result.conflicts.length > 0) {
+      conflicts.push(staffName + "：" + result.conflicts.join("、"));
+    }
+  }
+
+  return {
+    success: true,
+    updatedCount: updatedCount,
+    statusUpdatedCount: statusUpdatedCount,
+    unmatchedCount: unmatched.length,
+    conflictCount: conflicts.length,
+    message:
+      "口座登録フォームをスタッフマスタへ取り込みました。\n" +
+      "取込元：" + sourceSheet.getParent().getName() + " / " + sourceSheet.getName() + "\n" +
+      "口座情報を更新：" + updatedCount + "件\n" +
+      "振込先登録状況を更新：" + statusUpdatedCount + "件\n" +
+      "スタッフマスタ未一致：" + unmatched.length + "件" + (unmatched.length ? "\n- " + unmatched.slice(0, 10).join("\n- ") : "") + "\n" +
+      "既存値と違うため要確認：" + conflicts.length + "件" + (conflicts.length ? "\n- " + conflicts.slice(0, 10).join("\n- ") : "") + "\n" +
+      "注意：受取人名（口座名義カナ）が未入力の場合は、振込先登録状況を「要確認」にします。"
+  };
+}
+
+function getStaffBankQuestionnaireSourceSheet_() {
+  try {
+    const sourceSs = SpreadsheetApp.openById(STAFF_BANK_QUESTIONNAIRE_SPREADSHEET_ID);
+    const sheets = sourceSs.getSheets();
+
+    for (let i = 0; i < sheets.length; i++) {
+      if (sheets[i].getSheetId() === STAFF_BANK_QUESTIONNAIRE_SHEET_ID) {
+        return sheets[i];
+      }
+    }
+
+    return sheets[0] || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function ensureStaffMasterBankInfoColumns_(sheet) {
+  [
+    "銀行名",
+    "支店名"
+  ].forEach(header => ensureHeaderColumn_(sheet, header));
+}
+
+function fillStaffReceiverNamesFromKanaCore_(ss) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return {
+      success: false,
+      updatedCount: 0,
+      message: "スタッフマスタに更新対象がありません。"
+    };
+  }
+
+  ensureStaffMasterHeaders_(sheet);
+  ensureStaffMasterProfileColumns_(sheet);
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const staffCols = getStaffMasterColumnMap_(sheet);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const updates = [];
+  const skipped = [];
+
+  values.forEach((row, index) => {
+    const staffName = String(row[staffCols.name] || "").trim();
+    if (!staffName) return;
+    if (String(row[staffCols.receiverName] || "").trim()) return;
+
+    const receiverName = buildReceiverNameKanaFromStaffMasterRow_(row, headerMap);
+    if (!receiverName) {
+      skipped.push(staffName);
+      return;
+    }
+
+    updates.push({
+      rowNumber: index + 2,
+      column: staffCols.receiverName + 1,
+      value: receiverName
+    });
+  });
+
+  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+  const statusResult = updateStaffBankRegistrationStatus_(ss);
+
+  return {
+    success: true,
+    updatedCount: updates.length,
+    skippedCount: skipped.length,
+    message:
+      "スタッフマスタのカナから受取人名を補完しました。\n" +
+      "更新：" + updates.length + "件\n" +
+      "カナ未入力のため未更新：" + skipped.length + "件" + (skipped.length ? "\n- " + skipped.slice(0, 10).join("\n- ") : "") + "\n" +
+      "振込先登録状況更新：" + statusResult.updatedCount + "件"
+  };
+}
+
+function setupStaffQuestionnaireAutoImportTriggerCore_() {
+  const sourceSs = SpreadsheetApp.openById(STAFF_QUESTIONNAIRE_SPREADSHEET_ID);
+  const triggers = ScriptApp.getProjectTriggers();
+  let deletedCount = 0;
+
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === "handleStaffQuestionnaireFormSubmit") {
+      ScriptApp.deleteTrigger(trigger);
+      deletedCount++;
+    }
+  });
+
+  ScriptApp
+    .newTrigger("handleStaffQuestionnaireFormSubmit")
+    .forSpreadsheet(sourceSs)
+    .onFormSubmit()
+    .create();
+
+  return {
+    success: true,
+    message:
+      "スタッフ登録フォームの自動処理トリガーを設定しました。\n" +
+      "既存トリガー削除：" + deletedCount + "件\n" +
+      "新規トリガー作成：1件\n" +
+      "次回以降、フォーム回答後にスタッフマスタ取込・スタッフフォルダ作成/共有・ログ記録を自動実行します。"
+  };
+}
+
+function runStaffQuestionnaireAutoImportCore_(event) {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  const staffName = getStaffNameFromFormSubmitEvent_(event);
+  let importResult = null;
+  let folderResult = null;
+  let status = "完了";
+  let errorMessage = "";
+
+  try {
+    importResult = importStaffQuestionnaireToStaffMasterCore_(ss);
+    folderResult = createAndShareStaffFoldersCore_(ss);
+  } catch (error) {
+    status = "失敗";
+    errorMessage = error.message;
+  }
+
+  appendStaffRegistrationLog_(ss, {
+    receivedAt: new Date(),
+    staffName: staffName,
+    status: status,
+    importMessage: importResult ? importResult.message : "",
+    folderMessage: folderResult ? folderResult.message : "",
+    errorMessage: errorMessage
+  });
+
+  return {
+    success: status === "完了",
+    status: status,
+    staffName: staffName,
+    importResult: importResult,
+    folderResult: folderResult,
+    errorMessage: errorMessage
+  };
+}
+
+function getStaffNameFromFormSubmitEvent_(event) {
+  if (!event || !event.namedValues) return "";
+
+  const namedValues = event.namedValues;
+  const getNamedValue = keys => {
+    for (let i = 0; i < keys.length; i++) {
+      const values = namedValues[keys[i]];
+      if (values && values.length > 0 && String(values[0] || "").trim()) {
+        return String(values[0] || "").trim();
+      }
+    }
+    return "";
+  };
+
+  const fullName = getNamedValue(["スタッフ名", "氏名", "お名前", "名前", "フルネーム"]);
+  if (fullName) return fullName;
+
+  const familyName = getNamedValue(["姓", "姓（漢字）", "姓(漢字)", "苗字", "名字"]);
+  const givenName = getNamedValue(["名", "名（漢字）", "名(漢字)", "名前（名）", "お名前（名）"]);
+  return (familyName + givenName).trim();
+}
+
+function appendStaffRegistrationLog_(ss, result) {
+  const sheet = ensureStaffRegistrationLogSheet_(ss);
+  sheet.appendRow([
+    result.receivedAt,
+    result.staffName,
+    result.status,
+    result.importMessage,
+    result.folderMessage,
+    result.errorMessage
+  ]);
+}
+
+function ensureStaffRegistrationLogSheet_(ss) {
+  let sheet = ss.getSheetByName(STAFF_REGISTRATION_LOG_SHEET_NAME);
+  const headers = [
+    "日時",
+    "スタッフ名",
+    "処理結果",
+    "スタッフマスタ取込結果",
+    "スタッフフォルダ処理結果",
+    "エラー内容"
+  ];
+
+  if (!sheet) {
+    sheet = ss.insertSheet(STAFF_REGISTRATION_LOG_SHEET_NAME);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  headers.forEach((header, index) => {
+    if (!String(sheet.getRange(1, index + 1).getValue() || "").trim()) {
+      sheet.getRange(1, index + 1).setValue(header);
+    }
+  });
+
+  return sheet;
+}
+
+function syncExistingStaffFolderIdsCore_(ss) {
+  return prepareStaffFolderIdsCore_(ss, {
+    createMissing: false,
+    shareWithGmail: false,
+    processOnlyMissingFolderId: true
+  });
+}
+
+function createAndShareStaffFoldersCore_(ss) {
+  return prepareStaffFolderIdsCore_(ss, {
+    createMissing: true,
+    shareWithGmail: true,
+    processOnlyMissingFolderId: true
+  });
+}
+
+function prepareStaffFolderIdsCore_(ss, options) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return {
+      success: false,
+      message: "スタッフマスタに確認対象がありません。"
+    };
+  }
+
+  ensureStaffMasterHeaders_(sheet);
+  ensureStaffMasterProfileColumns_(sheet);
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const staffCols = getStaffMasterColumnMap_(sheet);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const allFolders = listStaffFoldersForMatching_();
+  const updates = [];
+  const foundActive = [];
+  const foundInactive = [];
+  const created = [];
+  const shared = [];
+  const missing = [];
+  const skipped = [];
+  const conflicts = [];
+
+  values.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const staffName = String(row[staffCols.name] || "").trim();
+    if (!staffName) return;
+
+    const currentFolderId = String(row[staffCols.payrollFolderId] || "").trim();
+    if (options.processOnlyMissingFolderId && currentFolderId) return;
+
+    const staffFolderName = buildStaffFolderNameFromRow_(row, headerMap, staffName);
+    const gmail = getPreferredGmailAddressFromStaffRow_(row, headerMap);
+    const matchResult = findStaffFolderMatch_(allFolders, staffFolderName, staffName);
+
+    if (matchResult.conflict) {
+      conflicts.push(staffName + "：" + matchResult.names.join(" / "));
+      return;
+    }
+
+    let folderInfo = matchResult.folderInfo;
+    if (!folderInfo && options.createMissing) {
+      if (!staffFolderName || staffFolderName === staffName) {
+        skipped.push(staffName + "（姓・名・資格の確認が必要）");
+        return;
+      }
+      if (!gmail) {
+        skipped.push(staffName + "（Gmailアドレス未確認）");
+        return;
+      }
+
+      const parentFolder = DriveApp.getFolderById(STAFF_FOLDER_PARENT_FOLDER_ID);
+      const folder = parentFolder.createFolder(staffFolderName);
+      folderInfo = {
+        id: folder.getId(),
+        name: folder.getName(),
+        location: "スタッフ一覧",
+        folder: folder
+      };
+      allFolders.push(folderInfo);
+      created.push(staffName + "：" + folderInfo.name);
+    }
+
+    if (!folderInfo) {
+      missing.push(staffName);
+      return;
+    }
+
+    if (!currentFolderId) {
+      updates.push({
+        rowNumber: rowNumber,
+        column: staffCols.payrollFolderId + 1,
+        value: folderInfo.id
+      });
+    }
+
+    if (folderInfo.location === "休止中スタッフ") {
+      foundInactive.push(staffName + "：" + folderInfo.name);
+    } else {
+      foundActive.push(staffName + "：" + folderInfo.name);
+    }
+
+    if (options.shareWithGmail && gmail) {
+      const folder = folderInfo.folder || DriveApp.getFolderById(folderInfo.id);
+      try {
+        folder.addViewer(gmail);
+        shared.push(staffName + "：" + gmail);
+      } catch (error) {
+        conflicts.push(staffName + "：共有失敗 " + error.message);
+      }
+    }
+  });
+
+  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+
+  return {
+    success: true,
+    message:
+      "スタッフフォルダIDの確認が完了しました。\n" +
+      "既存フォルダIDを反映：" + updates.length + "件\n" +
+      "既存フォルダ確認（スタッフ一覧）：" + foundActive.length + "件\n" +
+      "既存フォルダ確認（休止中）：" + foundInactive.length + "件\n" +
+      "新規作成：" + created.length + "件\n" +
+      "Gmail共有：" + shared.length + "件\n" +
+      "未発見：" + missing.length + "件" + formatResultPreviewLines_(missing) + "\n" +
+      "確認が必要：" + (skipped.length + conflicts.length) + "件" + formatResultPreviewLines_(skipped.concat(conflicts))
+  };
+}
+
+function listStaffFoldersForMatching_() {
+  return listStaffFoldersInParent_(STAFF_FOLDER_PARENT_FOLDER_ID, "スタッフ一覧")
+    .concat(listStaffFoldersInParent_(INACTIVE_STAFF_FOLDER_ID, "休止中スタッフ"));
+}
+
+function listStaffFoldersInParent_(parentFolderId, location) {
+  const parentFolder = DriveApp.getFolderById(parentFolderId);
+  const folders = parentFolder.getFolders();
+  const results = [];
+
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    results.push({
+      id: folder.getId(),
+      name: folder.getName(),
+      location: location,
+      folder: folder
+    });
+  }
+
+  return results;
+}
+
+function findStaffFolderMatch_(folderInfos, staffFolderName, staffName) {
+  const expectedKey = normalizeName_(staffFolderName);
+  const staffKey = normalizeName_(staffName);
+  const exactMatches = folderInfos.filter(info => normalizeName_(info.name) === expectedKey);
+
+  if (exactMatches.length === 1) {
+    return {
+      folderInfo: exactMatches[0],
+      conflict: false,
+      names: []
+    };
+  }
+
+  if (exactMatches.length > 1) {
+    return {
+      folderInfo: null,
+      conflict: true,
+      names: exactMatches.map(info => info.location + "/" + info.name)
+    };
+  }
+
+  const nameMatches = folderInfos.filter(info => {
+    const folderKey = normalizeName_(info.name);
+    return staffKey && folderKey.indexOf(staffKey) === 0;
+  });
+
+  if (nameMatches.length === 1) {
+    return {
+      folderInfo: nameMatches[0],
+      conflict: false,
+      names: []
+    };
+  }
+
+  return {
+    folderInfo: null,
+    conflict: nameMatches.length > 1,
+    names: nameMatches.map(info => info.location + "/" + info.name)
+  };
+}
+
+function buildStaffFolderNameFromRow_(row, headerMap, fallbackStaffName) {
+  const familyName = getRowValueByHeaders_(row, headerMap, ["姓（漢字）", "姓(漢字)", "姓"], -1);
+  const givenName = getRowValueByHeaders_(row, headerMap, ["名（漢字）", "名(漢字)", "名"], -1);
+  const qualification = getRowValueByHeaders_(row, headerMap, ["資格", "職種"], -1);
+  const name = familyName && givenName ? familyName + " " + givenName : fallbackStaffName;
+  return [name, qualification].filter(value => String(value || "").trim()).join(" ");
+}
+
+function getRowValueByHeaders_(row, headerMap, headerNames, fallbackIndex) {
+  const columnIndex = getColumnIndex_(headerMap, headerNames, fallbackIndex);
+  if (columnIndex < 0 || columnIndex >= row.length) return "";
+  return String(row[columnIndex] || "").trim();
+}
+
+function getPreferredGmailAddressFromStaffRow_(row, headerMap) {
+  const emailText = getRowValueByHeaders_(row, headerMap, ["メールアドレス（Gmail）", "メールアドレス(Gmail)", "メールアドレス", "Gmail"], -1);
+  const emails = String(emailText || "").split(/[\s,;、，]+/);
+
+  for (let i = 0; i < emails.length; i++) {
+    const email = emails[i].trim();
+    if (isGmailAddress_(email)) return email;
+  }
+
+  return "";
+}
+
+function isGmailAddress_(email) {
+  return /^[^@\s]+@gmail\.com$/i.test(String(email || "").trim());
+}
+
+function formatResultPreviewLines_(items) {
+  if (!items || items.length === 0) return "";
+  return "\n- " + items.slice(0, 10).join("\n- ");
+}
+
+function updateStaffBankInfoFromQuestionnaire_(sheet, rowNumber, headerMap, staffCols, sourceRow, sourceHeaderMap) {
+  const row = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const updates = [];
+  const conflicts = [];
+
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, getColumnIndex_(headerMap, ["銀行名"], -1), getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "銀行名",
+    "金融機関名",
+    "振込先銀行",
+    "振込先金融機関"
+  ], -1), "銀行名");
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.bankCode, getQuestionnaireBankCode_(sourceRow, sourceHeaderMap), "銀行コード");
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, getColumnIndex_(headerMap, ["支店名"], -1), getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "支店名",
+    "店舗名",
+    "振込先支店"
+  ], -1), "支店名");
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.branchCode, formatQuestionnaireCode_(sourceRow, sourceHeaderMap, [
+    "支店番号",
+    "支店コード",
+    "店舗番号"
+  ], 3), "支店番号");
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.accountType, normalizeAccountType_(getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "預金種目",
+    "口座種別"
+  ], -1)), "預金種目");
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.accountNumber, formatQuestionnaireCode_(sourceRow, sourceHeaderMap, [
+    "口座番号"
+  ], 7), "口座番号");
+  const receiverName = getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "受取人名",
+    "口座名義",
+    "口座名義カナ",
+    "口座名義（カナ）",
+    "口座名義(カナ)"
+  ], -1) || buildReceiverNameKanaFromStaffMasterRow_(row, headerMap);
+  addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.receiverName, normalizeReceiverNameKana_(receiverName), "受取人名");
+
+  updates.forEach(update => {
+    sheet.getRange(update.rowNumber, update.column).setValue(update.value);
+    row[update.column - 1] = update.value;
+  });
+
+  const statusCol = getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1);
+  let statusUpdated = false;
+  if (statusCol >= 0) {
+    const nextStatus = getStaffBankRegistrationStatusFromRow_(row, staffCols, conflicts.length > 0);
+    const currentStatus = String(row[statusCol] || "").trim();
+    if (currentStatus !== nextStatus) {
+      sheet.getRange(rowNumber, statusCol + 1).setValue(nextStatus);
+      statusUpdated = true;
+    }
+  }
+
+  return {
+    updatedCount: updates.length,
+    statusUpdated: statusUpdated,
+    conflicts: conflicts
+  };
+}
+
+function addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, zeroBasedColumn, value, label) {
+  const nextValue = String(value || "").trim();
+  if (!nextValue || zeroBasedColumn < 0) return;
+
+  const currentValue = String(row[zeroBasedColumn] || "").trim();
+  if (!currentValue) {
+    updates.push({
+      rowNumber: rowNumber,
+      column: zeroBasedColumn + 1,
+      value: nextValue
+    });
+    return;
+  }
+
+  if (currentValue !== nextValue) {
+    conflicts.push(label);
+  }
+}
+
+function normalizeAccountType_(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text === "1" || text.indexOf("普通") >= 0) return "1";
+  if (text === "2" || text.indexOf("当座") >= 0) return "2";
+  if (text === "4" || text.indexOf("貯蓄") >= 0) return "4";
+  return text;
+}
+
+function buildReceiverNameKanaFromQuestionnaire_(row, headerMap) {
+  const familyKana = getQuestionnaireValue_(row, headerMap, [
+    "姓フリガナ",
+    "姓（フリガナ）",
+    "姓(フリガナ)",
+    "セイ",
+    "苗字フリガナ",
+    "名字フリガナ"
+  ], -1);
+  const givenKana = getQuestionnaireValue_(row, headerMap, [
+    "名フリガナ",
+    "名（フリガナ）",
+    "名(フリガナ)",
+    "メイ",
+    "名前フリガナ"
+  ], -1);
+
+  return normalizeReceiverNameKana_([familyKana, givenKana].filter(Boolean).join(" "));
+}
+
+function buildReceiverNameKanaFromStaffMasterRow_(row, headerMap) {
+  const familyCol = getColumnIndex_(headerMap, ["姓フリガナ"], -1);
+  const givenCol = getColumnIndex_(headerMap, ["名フリガナ"], -1);
+  const familyKana = familyCol >= 0 ? String(row[familyCol] || "").trim() : "";
+  const givenKana = givenCol >= 0 ? String(row[givenCol] || "").trim() : "";
+
+  return normalizeReceiverNameKana_([familyKana, givenKana].filter(Boolean).join(" "));
+}
+
+function normalizeReceiverNameKana_(value) {
+  return toHalfWidthKana_(String(value || ""))
+    .replace(/[　\s]+/g, " ")
+    .trim();
+}
+
+function toHalfWidthKana_(value) {
+  const kanaMap = {
+    "ガ": "ｶﾞ", "ギ": "ｷﾞ", "グ": "ｸﾞ", "ゲ": "ｹﾞ", "ゴ": "ｺﾞ",
+    "ザ": "ｻﾞ", "ジ": "ｼﾞ", "ズ": "ｽﾞ", "ゼ": "ｾﾞ", "ゾ": "ｿﾞ",
+    "ダ": "ﾀﾞ", "ヂ": "ﾁﾞ", "ヅ": "ﾂﾞ", "デ": "ﾃﾞ", "ド": "ﾄﾞ",
+    "バ": "ﾊﾞ", "ビ": "ﾋﾞ", "ブ": "ﾌﾞ", "ベ": "ﾍﾞ", "ボ": "ﾎﾞ",
+    "パ": "ﾊﾟ", "ピ": "ﾋﾟ", "プ": "ﾌﾟ", "ペ": "ﾍﾟ", "ポ": "ﾎﾟ",
+    "ヴ": "ｳﾞ",
+    "ア": "ｱ", "イ": "ｲ", "ウ": "ｳ", "エ": "ｴ", "オ": "ｵ",
+    "カ": "ｶ", "キ": "ｷ", "ク": "ｸ", "ケ": "ｹ", "コ": "ｺ",
+    "サ": "ｻ", "シ": "ｼ", "ス": "ｽ", "セ": "ｾ", "ソ": "ｿ",
+    "タ": "ﾀ", "チ": "ﾁ", "ツ": "ﾂ", "テ": "ﾃ", "ト": "ﾄ",
+    "ナ": "ﾅ", "ニ": "ﾆ", "ヌ": "ﾇ", "ネ": "ﾈ", "ノ": "ﾉ",
+    "ハ": "ﾊ", "ヒ": "ﾋ", "フ": "ﾌ", "ヘ": "ﾍ", "ホ": "ﾎ",
+    "マ": "ﾏ", "ミ": "ﾐ", "ム": "ﾑ", "メ": "ﾒ", "モ": "ﾓ",
+    "ヤ": "ﾔ", "ユ": "ﾕ", "ヨ": "ﾖ",
+    "ラ": "ﾗ", "リ": "ﾘ", "ル": "ﾙ", "レ": "ﾚ", "ロ": "ﾛ",
+    "ワ": "ﾜ", "ヲ": "ｦ", "ン": "ﾝ",
+    "ァ": "ｧ", "ィ": "ｨ", "ゥ": "ｩ", "ェ": "ｪ", "ォ": "ｫ",
+    "ッ": "ｯ", "ャ": "ｬ", "ュ": "ｭ", "ョ": "ｮ",
+    "ー": "ｰ", "。": "｡", "「": "｢", "」": "｣", "、": "､", "・": "･",
+    "゛": "ﾞ", "゜": "ﾟ"
+  };
+
+  return String(value || "")
+    .replace(/[ぁ-ん]/g, char => String.fromCharCode(char.charCodeAt(0) + 0x60))
+    .replace(/[\u30A1-\u30FA\u30FC\u3001\u3002\u300C\u300D\u30FB]/g, char => kanaMap[char] || char)
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0));
+}
+
+function formatQuestionnaireCode_(row, headerMap, headerNames, length) {
+  const value = getQuestionnaireValue_(row, headerMap, headerNames, -1);
+  if (!value) return "";
+  return formatCode_(value, length);
+}
+
+function getStaffBankRegistrationStatusFromRow_(row, staffCols, hasConflict) {
+  if (hasConflict) return "要確認";
+
+  const bankFields = [
+    String(row[staffCols.bankCode] || "").trim(),
+    String(row[staffCols.branchCode] || "").trim(),
+    String(row[staffCols.accountNumber] || "").trim(),
+    String(row[staffCols.receiverName] || "").trim()
+  ];
+  const filledCount = bankFields.filter(Boolean).length;
+
+  if (filledCount === bankFields.length) return "登録済";
+  if (filledCount > 0) return "要確認";
+  return "未登録";
+}
+
 function ensureStaffMasterHeaders_(sheet) {
   const headers = [
     "スタッフ名",
@@ -8347,7 +9265,7 @@ function ensureStaffMasterHeaders_(sheet) {
     "預金種目",
     "口座番号",
     "受取人名",
-    "給与明細フォルダID",
+    STAFF_FOLDER_ID_HEADER,
     "住所",
     STAFF_BANK_REGISTRATION_STATUS_HEADER
   ];
@@ -8368,8 +9286,13 @@ function ensureStaffMasterHeaders_(sheet) {
 
 function ensureStaffMasterProfileColumns_(sheet) {
   [
+    "姓",
+    "名",
+    "姓フリガナ",
+    "名フリガナ",
     "電話番号",
     "メールアドレス",
+    STAFF_GMAIL_STATUS_HEADER,
     "資格",
     "資格取得年",
     "関連資格",
@@ -8381,6 +9304,20 @@ function ensureStaffMasterProfileColumns_(sheet) {
 }
 
 function setStaffQuestionnaireValuesToRow_(row, headerMap, sourceRow, sourceHeaderMap) {
+  setRowValueByHeaders_(row, headerMap, ["姓"], getQuestionnaireFamilyName_(sourceRow, sourceHeaderMap), -1);
+  setRowValueByHeaders_(row, headerMap, ["名"], getQuestionnaireGivenName_(sourceRow, sourceHeaderMap), -1);
+  setRowValueByHeaders_(row, headerMap, ["姓フリガナ"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "姓フリガナ",
+    "セイ",
+    "苗字フリガナ",
+    "名字フリガナ"
+  ], -1), -1);
+  setRowValueByHeaders_(row, headerMap, ["名フリガナ"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "名フリガナ",
+    "メイ",
+    "名前フリガナ"
+  ], -1), -1);
+  setRowValueByHeaders_(row, headerMap, ["受取人名"], buildReceiverNameKanaFromQuestionnaire_(sourceRow, sourceHeaderMap), STAFF_COL_RECEIVER_NAME);
   setRowValueByHeaders_(row, headerMap, ["住所"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
     "住所",
     "現住所",
@@ -8391,11 +9328,9 @@ function setStaffQuestionnaireValuesToRow_(row, headerMap, sourceRow, sourceHead
     "電話",
     "連絡先"
   ], 2), -1);
-  setRowValueByHeaders_(row, headerMap, ["メールアドレス"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-    "メールアドレス",
-    "メール",
-    "Email"
-  ], 3), -1);
+  const email = getQuestionnaireEmail_(sourceRow, sourceHeaderMap);
+  setRowValueByHeaders_(row, headerMap, ["メールアドレス"], email, -1);
+  setRowValueByHeaders_(row, headerMap, [STAFF_GMAIL_STATUS_HEADER], getGmailStatus_(email), -1);
   setRowValueByHeaders_(row, headerMap, ["資格"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["資格"], 5), -1);
   setRowValueByHeaders_(row, headerMap, ["資格取得年"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
     "資格取得年",
@@ -8421,6 +9356,20 @@ function updateExistingStaffFromQuestionnaire_(sheet, rowNumber, headerMap, staf
   const conflicts = [];
   const profileUpdates = [];
 
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["姓"], getQuestionnaireFamilyName_(sourceRow, sourceHeaderMap));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["名"], getQuestionnaireGivenName_(sourceRow, sourceHeaderMap));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["姓フリガナ"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "姓フリガナ",
+    "セイ",
+    "苗字フリガナ",
+    "名字フリガナ"
+  ], -1));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["名フリガナ"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
+    "名フリガナ",
+    "メイ",
+    "名前フリガナ"
+  ], -1));
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["受取人名"], buildReceiverNameKanaFromQuestionnaire_(sourceRow, sourceHeaderMap));
   addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["住所"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
     "住所",
     "現住所",
@@ -8431,11 +9380,9 @@ function updateExistingStaffFromQuestionnaire_(sheet, rowNumber, headerMap, staf
     "電話",
     "連絡先"
   ], 2));
-  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["メールアドレス"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
-    "メールアドレス",
-    "メール",
-    "Email"
-  ], 3));
+  const email = getQuestionnaireEmail_(sourceRow, sourceHeaderMap);
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["メールアドレス"], email);
+  addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, [STAFF_GMAIL_STATUS_HEADER], getGmailStatus_(email));
   addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["資格"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["資格"], 5));
   addQuestionnaireCellUpdateIfEmpty_(profileUpdates, row, rowNumber, headerMap, ["資格取得年"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, [
     "資格取得年",
@@ -8467,6 +9414,94 @@ function updateExistingStaffFromQuestionnaire_(sheet, rowNumber, headerMap, staf
     profileUpdatedCount: profileUpdates.length,
     lineUpdated: updates.length > 0
   };
+}
+
+function getQuestionnaireStaffName_(row, headerMap) {
+  const fullName = getQuestionnaireValue_(row, headerMap, [
+    "スタッフ名",
+    "氏名",
+    "お名前",
+    "名前",
+    "フルネーム"
+  ], -1);
+  if (fullName) return fullName;
+
+  const familyName = getQuestionnaireValue_(row, headerMap, [
+    "姓",
+    "姓（漢字）",
+    "姓(漢字)",
+    "苗字",
+    "名字"
+  ], -1);
+  const givenName = getQuestionnaireValue_(row, headerMap, [
+    "名",
+    "名（漢字）",
+    "名(漢字)",
+    "名前（名）",
+    "お名前（名）"
+  ], -1);
+
+  const splitName = (familyName + givenName).trim();
+  if (splitName) return splitName;
+
+  return getQuestionnaireValue_(row, headerMap, [], 1);
+}
+
+function getQuestionnaireFamilyName_(row, headerMap) {
+  const familyName = getQuestionnaireValue_(row, headerMap, [
+    "姓",
+    "姓（漢字）",
+    "姓(漢字)",
+    "苗字",
+    "名字"
+  ], -1);
+  const givenName = getQuestionnaireGivenNameRaw_(row, headerMap);
+
+  return familyName && givenName ? familyName : "";
+}
+
+function getQuestionnaireGivenName_(row, headerMap) {
+  const familyName = getQuestionnaireValue_(row, headerMap, [
+    "姓",
+    "姓（漢字）",
+    "姓(漢字)",
+    "苗字",
+    "名字"
+  ], -1);
+  const givenName = getQuestionnaireGivenNameRaw_(row, headerMap);
+
+  return familyName && givenName ? givenName : "";
+}
+
+function getQuestionnaireGivenNameRaw_(row, headerMap) {
+  return getQuestionnaireValue_(row, headerMap, [
+    "名",
+    "名（漢字）",
+    "名(漢字)",
+    "名前（名）",
+    "お名前（名）"
+  ], -1);
+}
+
+function getQuestionnaireEmail_(row, headerMap) {
+  return getQuestionnaireValue_(row, headerMap, [
+    "Gmailアドレス",
+    "Googleアカウント",
+    "Googleアカウント（Gmail）",
+    "メールアドレス（Gmail）",
+    "メールアドレス(Gmail)",
+    "メールアドレス",
+    "メール",
+    "Email"
+  ], 3);
+}
+
+function getGmailStatus_(email) {
+  const text = String(email || "").trim().toLowerCase();
+  if (!text) return "";
+  return /(^|[\s,;])[^@\s,;]+@gmail\.com($|[\s,;])/.test(text)
+    ? "Gmail確認済"
+    : "要確認";
 }
 
 function addQuestionnaireCellUpdateIfEmpty_(updates, row, rowNumber, headerMap, headerNames, value) {
@@ -8626,7 +9661,14 @@ function onOpen() {
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
-    .addItem("💰 月末給与処理を実行", "runPayrollAll")
+    .addItem("💰 給与集計だけ更新", "runPayrollSummaryOnly")
+    .addItem("📄 給与明細PDF・振込CSVを作成", "runPayrollFilesAfterReview")
+    .addItem("📁 給与明細PDFをスタッフフォルダへ移動", "movePayrollPdfsToStaffFolders")
+    .addItem("📁 既存スタッフフォルダIDを確認・反映", "syncExistingStaffFolderIds")
+    .addItem("📁 新規スタッフフォルダを作成・共有", "createAndShareStaffFolders")
+    .addItem("⚙️ スタッフ登録フォーム自動処理を設定", "setupStaffQuestionnaireAutoImportTrigger")
+    .addItem("🏦 口座登録フォームをスタッフマスタへ取込", "importStaffBankQuestionnaireToStaffMaster")
+    .addItem("🔤 カナから口座名義を補完", "fillStaffReceiverNamesFromKana")
     .addItem("🎫 回数券を更新", "runCouponAll")
     .addToUi();
 }
@@ -8638,6 +9680,7 @@ function onOpenLegacyMenuReference_() {
     "setupUserStatusColumn",
     "setupAdminMaster",
     "addTestUserForAllStaff",
+    "runPayrollAll",
     "createWageLedger",
     "updateDistanceAndTravelCosts",
     "movePayrollPdfsToStaffFolders",
