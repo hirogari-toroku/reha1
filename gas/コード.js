@@ -8,6 +8,7 @@ const STAFF_USER_MASTER_SHEET_NAME = "スタッフ利用者マスタ";
 const LIFF_DISPLAY_MASTER_SHEET_NAME = "LIFF表示用マスタ";
 const LINE_USER_DIRECTORY_SHEET_NAME = "LINEユーザー一覧";
 const STAFF_REGISTRATION_LOG_SHEET_NAME = "スタッフ登録処理ログ";
+const IMPORTANT_INFO_MASTER_SHEET_NAME = "重要事項説明マスタ";
 const PAYROLL_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
 const STAFF_FOLDER_PARENT_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
 const INACTIVE_STAFF_FOLDER_ID = "1-0gLAE39SYujAwl-3ExG8r86bkihRbYD";
@@ -39,6 +40,9 @@ const USER_CHART_URL_HEADER = "カルテURL";
 const USER_FOLDER_URL_HEADER = "利用者フォルダURL";
 const USER_BASIC_INFO_URL_HEADER = "基本情報URL";
 const STAFF_USER_CHART_URL_HEADER = "カルテURL";
+const IMPORTANT_PDF_URL_HEADER = "重要事項説明書PDF URL";
+const IMPORTANT_VIDEO_URL_HEADER = "説明動画URL";
+const IMPORTANT_CONSENT_FORM_URL_HEADER = "同意フォームURL";
 const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
 const PDF_EXPORT_WAIT_MS = 1000;
@@ -549,6 +553,7 @@ function initLiffApp_(lineUserId, displayName) {
       success: true,
       staffName: displayMasterData.staffName,
       staffResources: displayMasterData.staffResources || {},
+      importantInfo: displayMasterData.importantInfo || {},
       users: displayMasterData.users,
       lineUserId: lineUserId || "",
       displayName: displayName || "",
@@ -585,6 +590,7 @@ function initLiffApp_(lineUserId, displayName) {
   return {
     success: true,
     staffName: staffName,
+    importantInfo: getImportantInfoLinks_(ss),
     users: users,
     lineUserId: lineUserId || "",
     displayName: displayName || "",
@@ -839,6 +845,7 @@ function getLiffUserList_(lineUserId) {
     return {
       success: true,
       staffName: displayMasterData.staffName,
+      importantInfo: displayMasterData.importantInfo || {},
       users: displayMasterData.users,
       message: ""
     };
@@ -889,6 +896,7 @@ function getLiffUserList_(lineUserId) {
   return {
     success: true,
     staffName: staffName,
+    importantInfo: getImportantInfoLinks_(ss),
     users: users,
     message: ""
   };
@@ -943,6 +951,7 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
         staffFolderUrl: staffFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][staffFolderUrlCol]) : "",
         payslipFolderUrl: payslipFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][payslipFolderUrlCol]) : ""
       },
+      importantInfo: getImportantInfoLinks_(ss),
       users: users
     };
 
@@ -1525,6 +1534,7 @@ function getSchedulesForLiff_(lineUserId) {
     success: true,
     staffName: staffName,
     staffResources: displayMasterData ? displayMasterData.staffResources || {} : {},
+    importantInfo: displayMasterData ? displayMasterData.importantInfo || getImportantInfoLinks_(ss) : getImportantInfoLinks_(ss),
     users: displayMasterData ? displayMasterData.users || [] : [],
     schedules: schedules
   };
@@ -1573,6 +1583,7 @@ function getUserSchedulesForLiff_(lineUserId, displayName) {
     messagingLineUserId: match.messagingLineUserId || "",
     displayName: displayName || "",
     lineDisplayName: match.lineDisplayName || displayName || "",
+    importantInfo: getImportantInfoLinks_(ss),
     schedules: schedules,
     message: schedules.length ? "" : "対象期間内の予約はありません。"
   };
@@ -6460,8 +6471,10 @@ function updateLiffDisplayMaster(suppressAlert) {
   ensureUserMasterBaseColumns_(ss.getSheetByName(USER_MASTER_SHEET_NAME));
   ensureStaffMasterHeaders_(staffSheet);
   ensureStaffUserMasterSheet_(ss);
+  ensureImportantInfoMasterSheet_(ss);
   const usersByStaff = buildLiffUsersByStaffMap_(ss, staffUserSheet);
   const staffResourcesByName = getStaffResourceMap_(staffSheet);
+  const importantInfo = getImportantInfoLinks_(ss);
   const staffValues = staffSheet.getDataRange().getValues();
   const cols = getStaffMasterColumnMap_(staffSheet);
   const now = new Date();
@@ -6491,6 +6504,7 @@ function updateLiffDisplayMaster(suppressAlert) {
       initDataMap[liffLineUserId] = {
         staffName: staffName,
         staffResources: staffResources,
+        importantInfo: importantInfo,
         users: displayUsers
       };
     }
@@ -6722,6 +6736,73 @@ function getUserResourceMap_(ss) {
 function normalizeResourceUrl_(value) {
   const url = String(value || "").trim();
   return /^https?:\/\//i.test(url) ? url : "";
+}
+
+function getImportantInfoLinks_(ss) {
+  const sheet = ss.getSheetByName(IMPORTANT_INFO_MASTER_SHEET_NAME);
+
+  if (!sheet || sheet.getLastRow() < 2) {
+    return {};
+  }
+
+  const headerMap = getHeaderColumnMap_(sheet);
+  const pdfUrlCol = getColumnIndex_(headerMap, [IMPORTANT_PDF_URL_HEADER, "PDF URL"], -1);
+  const videoUrlCol = getColumnIndex_(headerMap, [IMPORTANT_VIDEO_URL_HEADER, "動画URL"], -1);
+  const formUrlCol = getColumnIndex_(headerMap, [IMPORTANT_CONSENT_FORM_URL_HEADER, "同意フォームURL"], -1);
+  const row = sheet.getRange(2, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  return {
+    pdfUrl: pdfUrlCol >= 0 ? normalizeResourceUrl_(row[pdfUrlCol]) : "",
+    videoUrl: videoUrlCol >= 0 ? normalizeResourceUrl_(row[videoUrlCol]) : "",
+    consentFormUrl: formUrlCol >= 0 ? normalizeResourceUrl_(row[formUrlCol]) : ""
+  };
+}
+
+function setupImportantInfoMasterSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ensureImportantInfoMasterSheet_(ss);
+
+  SpreadsheetApp.getUi().alert(
+    "重要事項説明マスタを整えました。\n" +
+    "2行目に、PDF・説明動画・同意フォームのURLを入力してください。\n" +
+    "入力後は「LIFF表示用マスタを更新」を実行するとLIFFへ反映されます。"
+  );
+
+  return sheet;
+}
+
+function ensureImportantInfoMasterSheet_(ss) {
+  const sheet = ss.getSheetByName(IMPORTANT_INFO_MASTER_SHEET_NAME) ||
+    ss.insertSheet(IMPORTANT_INFO_MASTER_SHEET_NAME);
+  const headers = [
+    IMPORTANT_PDF_URL_HEADER,
+    IMPORTANT_VIDEO_URL_HEADER,
+    IMPORTANT_CONSENT_FORM_URL_HEADER,
+    "メモ",
+    "更新日時"
+  ];
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  if (sheet.getLastRow() < 2) {
+    sheet.getRange(2, 1, 1, headers.length).setValues([["", "", "", "", new Date()]]);
+  } else {
+    const timestampCell = sheet.getRange(2, headers.length);
+    if (!timestampCell.getValue()) timestampCell.setValue(new Date());
+  }
+
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, headers.length)
+    .setBackground("#1f2933")
+    .setFontColor("#ffffff")
+    .setFontWeight("bold");
+  sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), headers.length).setWrap(true);
+  sheet.setColumnWidth(1, 280);
+  sheet.setColumnWidth(2, 260);
+  sheet.setColumnWidth(3, 260);
+  sheet.setColumnWidth(4, 260);
+  sheet.setColumnWidth(5, 150);
+
+  return sheet;
 }
 
 function parseLiffUserLinksJson_(value, fallbackText) {
@@ -9659,6 +9740,7 @@ function onOpen() {
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
     .addItem("📝 利用者アンケートを利用者マスタへ取込", "importUserQuestionnaireToUserMaster")
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
+    .addItem("📘 重要事項説明マスタを整える", "setupImportantInfoMasterSheet")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
     .addItem("💰 給与集計だけ更新", "runPayrollSummaryOnly")

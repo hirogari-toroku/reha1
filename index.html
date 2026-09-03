@@ -324,6 +324,35 @@
       margin: 0 0 12px;
     }
 
+    .important-info-panel {
+      margin: 0 0 12px;
+      padding: 12px;
+      border: 1px solid #bce9ca;
+      border-radius: 8px;
+      background: #f3fbf6;
+    }
+
+    .important-info-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      color: #1f2933;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .important-info-title svg,
+    .resource-link svg {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+    }
+
+    .important-info-title svg {
+      color: #06a346;
+    }
+
     .schedule-resource-links {
       margin: 8px 0 10px;
     }
@@ -332,6 +361,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       min-height: 36px;
       padding: 8px 12px;
       border: 1px solid #c8d0d9;
@@ -813,6 +843,17 @@
   <div class="panel">
     <div id="staff" class="staff">読み込み中...</div>
     <div id="staffResources" class="resource-links hidden"></div>
+    <div id="importantInfoPanel" class="important-info-panel hidden">
+      <div class="important-info-title">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 3h6l4 4v14H8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+          <path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+          <path d="m10 13 2 2 4-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <span>重要事項説明</span>
+      </div>
+      <div id="importantInfoLinks" class="resource-links"></div>
+    </div>
 
     <div class="tabs">
       <button id="manageTab" class="active" type="button" onclick="switchMode('manage')">予定一覧</button>
@@ -987,6 +1028,7 @@
     let adminStaffOptions = [];
     let adminUserOptions = [];
     let staffResources = {};
+    let importantInfo = {};
     let userResourceMap = {};
 
     function jsonp(url) {
@@ -1246,13 +1288,25 @@
       return /^https?:\/\//i.test(String(url || "").trim());
     }
 
-    function makeResourceLink(label, url, primary) {
+    function makeResourceIcon() {
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.setAttribute("viewBox", "0 0 24 24");
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML =
+        '<path d="M8 3h6l4 4v14H8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>' +
+        '<path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>' +
+        '<path d="m10 13 2 2 4-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>';
+      return icon;
+    }
+
+    function makeResourceLink(label, url, primary, withIcon) {
       const link = document.createElement("a");
       link.className = "resource-link" + (primary ? " primary" : "");
       link.href = String(url || "").trim();
       link.target = "_blank";
       link.rel = "noopener noreferrer";
-      link.textContent = label;
+      if (withIcon) link.appendChild(makeResourceIcon());
+      link.appendChild(document.createTextNode(label));
       return link;
     }
 
@@ -1291,6 +1345,7 @@
 
     function setResourceData(data) {
       staffResources = data && data.staffResources ? data.staffResources : {};
+      importantInfo = data && data.importantInfo ? data.importantInfo : {};
       userResourceMap = {};
 
       (data && data.users || []).forEach(user => {
@@ -1305,6 +1360,7 @@
       });
 
       renderStaffResourceLinks();
+      renderImportantInfoLinks();
     }
 
     function renderStaffResourceLinks() {
@@ -1329,6 +1385,33 @@
         area.appendChild(makeResourceLink(label, url, primary));
       });
       area.classList.remove("hidden");
+    }
+
+    function renderImportantInfoLinks() {
+      const panel = document.getElementById("importantInfoPanel");
+      const area = document.getElementById("importantInfoLinks");
+      area.innerHTML = "";
+
+      if (appMode !== "staff" && appMode !== "user") {
+        panel.classList.add("hidden");
+        return;
+      }
+
+      const links = [
+        ["重要事項説明書PDF", importantInfo.pdfUrl, true],
+        ["説明動画", importantInfo.videoUrl, false],
+        ["同意フォーム", importantInfo.consentFormUrl, false]
+      ].filter(([, url]) => isValidResourceUrl(url));
+
+      if (!links.length) {
+        panel.classList.add("hidden");
+        return;
+      }
+
+      links.forEach(([label, url, primary], index) => {
+        area.appendChild(makeResourceLink(label, url, primary, index === 0));
+      });
+      panel.classList.remove("hidden");
     }
 
     function getUserResourceForItem(item) {
@@ -1401,6 +1484,7 @@
       return jsonp(GAS_URL + "?" + params.toString())
         .then(data => {
           scheduleItems = data.schedules || [];
+          setResourceData(data && data.success ? data : {});
           if (data.userName) {
             document.getElementById("staff").innerText = "利用者：" + data.userName + " 様";
           } else {
@@ -1414,6 +1498,7 @@
         })
         .catch(error => {
           scheduleItems = [];
+          setResourceData({});
           renderUserScheduleList();
           setMessage("予約の取得に失敗しました：" + error.message);
         });
