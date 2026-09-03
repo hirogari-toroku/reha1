@@ -1006,6 +1006,7 @@
   <script>
     const GAS_URL = "https://script.google.com/macros/s/AKfycbxCE2wBGAhY3vbYT0sGfyVhGYH36OvoxQyWAfR-ullAcqS90FQ2jCkm5G4SrLxyorwwqQ/exec";
     const LIFF_ID = "2010856600-yxOaV2Np";
+    const IMPORTANT_INFO_PAGE_URL = "https://www.hirogari-reha.com/重要事項説明/";
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
     const STAFF_REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfTjEQpVCXOUO5igr02E5yn_QnbuIUY9KoXvb2_VyxjCcxmYA/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
@@ -1539,7 +1540,10 @@
             } else {
               document.getElementById("staff").innerText = "利用者：" + (data.userName || lineDisplayName || "確認済み") + " 様";
             }
-            setMessage(data.message || "重要事項説明を表示できます。初回同意がお済みの方は、再確認用としてご覧ください。");
+            setMessage("確認できました。重要事項説明ページへ移動します...");
+            setTimeout(() => {
+              window.location.href = IMPORTANT_INFO_PAGE_URL;
+            }, 500);
             return data;
           }
 
