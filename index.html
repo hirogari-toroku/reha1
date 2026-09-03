@@ -1009,7 +1009,7 @@
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
     const STAFF_REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfTjEQpVCXOUO5igr02E5yn_QnbuIUY9KoXvb2_VyxjCcxmYA/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
-    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" || requestedMode === "qr" ? requestedMode : "staff";
+    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" || requestedMode === "qr" || requestedMode === "important" ? requestedMode : "staff";
 
     let lineUserId = "";
     let lineDisplayName = "";
@@ -1138,6 +1138,21 @@
       document.getElementById("qrPanel").classList.remove("hidden");
       document.getElementById("adminForm").classList.add("hidden");
       setMessage("このQRコードから、ひろがり公式LINEを友だち追加できます。");
+    }
+
+    function setupImportantModeView() {
+      document.getElementById("pageTitle").innerText = "重要事項説明";
+      document.getElementById("staff").innerText = "LINE情報を確認中...";
+      document.querySelector(".tabs").classList.add("hidden");
+      document.getElementById("userPicker").classList.add("hidden");
+      document.getElementById("visitForm").classList.add("hidden");
+      document.getElementById("scheduleForm").classList.add("hidden");
+      document.getElementById("manageForm").classList.add("hidden");
+      document.getElementById("registerForm").classList.add("hidden");
+      document.getElementById("qrPanel").classList.add("hidden");
+      document.getElementById("adminForm").classList.add("hidden");
+      document.getElementById("importantInfoPanel").classList.remove("hidden");
+      setMessage("利用者様またはスタッフとして登録済みの場合のみ、重要事項説明を表示します。");
     }
 
     function setDisabled(disabled) {
@@ -1392,7 +1407,7 @@
       const area = document.getElementById("importantInfoLinks");
       area.innerHTML = "";
 
-      if (appMode !== "staff" && appMode !== "user") {
+      if (appMode !== "staff" && appMode !== "user" && appMode !== "important") {
         panel.classList.add("hidden");
         return;
       }
@@ -1501,6 +1516,42 @@
           setResourceData({});
           renderUserScheduleList();
           setMessage("予約の取得に失敗しました：" + error.message);
+        });
+    }
+
+    function loadImportantInfo(displayName) {
+      if (!lineUserId) return Promise.resolve();
+
+      const params = new URLSearchParams({
+        action: "getImportantInfo",
+        lineUserId: lineUserId,
+        displayName: displayName || ""
+      });
+
+      setMessage("重要事項説明を確認中...");
+
+      return jsonp(GAS_URL + "?" + params.toString())
+        .then(data => {
+          setResourceData(data && data.success ? data : {});
+          if (data && data.success) {
+            if (data.role === "staff") {
+              document.getElementById("staff").innerText = "スタッフ：" + (data.staffName || lineDisplayName || "確認済み");
+            } else {
+              document.getElementById("staff").innerText = "利用者：" + (data.userName || lineDisplayName || "確認済み") + " 様";
+            }
+            setMessage(data.message || "重要事項説明を表示できます。初回同意がお済みの方は、再確認用としてご覧ください。");
+            return data;
+          }
+
+          document.getElementById("staff").innerText =
+            "登録情報を確認できませんでした。\nLINE表示名：" + (lineDisplayName || "未取得");
+          setMessage((data && data.message) || "利用者様またはスタッフとして登録後に確認できます。スタッフへお問い合わせください。");
+          return data;
+        })
+        .catch(error => {
+          setResourceData({});
+          document.getElementById("staff").innerText = "重要事項説明を表示できませんでした。";
+          setMessage("重要事項説明の確認に失敗しました：" + error.message);
         });
     }
 
@@ -2550,6 +2601,7 @@
     if (appMode === "staff-register") setupStaffRegisterModeView();
     if (appMode === "admin") setupAdminModeView();
     if (appMode === "qr") setupQrModeView();
+    if (appMode === "important") setupImportantModeView();
 
     if (appMode !== "qr") {
       liff.init({ liffId: LIFF_ID })
@@ -2566,15 +2618,16 @@
           lineUserId = profile.userId;
           lineDisplayName = profile.displayName || "";
           document.getElementById("staff").innerText =
-            (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : "スタッフ情報") +
+            (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : appMode === "important" ? "重要事項説明" : "スタッフ情報") +
             "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
           if (appMode === "user") return loadUserSchedules(true);
           if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
           if (appMode === "staff-register") return logStaffRegisterLiffLogin(profile.displayName);
           if (appMode === "admin") return loadAdminDashboard(true);
+          if (appMode === "important") return loadImportantInfo(profile.displayName);
           return initApp(profile.displayName);
         })
-        .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" ? null : loadSchedules(true))
+        .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" || appMode === "important" ? null : loadSchedules(true))
         .then(() => {
           if (appMode !== "register" && appMode !== "staff-register") setDisabled(false);
         })

@@ -367,6 +367,13 @@ function doGet(e) {
     ));
   }
 
+  if (action === "getImportantInfo") {
+    return liffResponse_(e, getImportantInfoForLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "getAdminDashboard") {
     return liffResponse_(e, getAdminDashboardForLiff_(
       e.parameter.lineUserId,
@@ -1586,6 +1593,151 @@ function getUserSchedulesForLiff_(lineUserId, displayName) {
     importantInfo: getImportantInfoLinks_(ss),
     schedules: schedules,
     message: schedules.length ? "" : "対象期間内の予約はありません。"
+  };
+}
+
+function getImportantInfoForLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const id = String(lineUserId || "").trim();
+  const name = String(displayName || "").trim();
+
+  if (!id) {
+    return {
+      success: false,
+      role: "",
+      message: "LINE情報を確認できませんでした。LINEから開き直してください。",
+      importantInfo: {}
+    };
+  }
+
+  const displayMasterData = getLiffInitDataFromDisplayMaster_(id);
+  if (displayMasterData) {
+    saveLineUserDirectory_(ss, {
+      source: "重要事項説明LIFF",
+      liffLineUserId: id,
+      displayName: name,
+      detectedStaffName: displayMasterData.staffName || "",
+      checkedAt: new Date()
+    });
+
+    saveLiffOperationLog_(
+      ss,
+      "getImportantInfo",
+      id,
+      displayMasterData.staffName || "",
+      "",
+      "",
+      "",
+      "",
+      "OK",
+      "スタッフとして重要事項説明を表示",
+      name
+    );
+
+    return {
+      success: true,
+      role: "staff",
+      staffName: displayMasterData.staffName || "",
+      lineUserId: id,
+      displayName: name,
+      importantInfo: displayMasterData.importantInfo || getImportantInfoLinks_(ss),
+      users: displayMasterData.users || [],
+      message: ""
+    };
+  }
+
+  const staffName = getStaffNameCached_(ss, id);
+  if (staffName && staffName !== "未登録") {
+    saveLineUserDirectory_(ss, {
+      source: "重要事項説明LIFF",
+      liffLineUserId: id,
+      displayName: name,
+      detectedStaffName: staffName,
+      checkedAt: new Date()
+    });
+
+    saveLiffOperationLog_(
+      ss,
+      "getImportantInfo",
+      id,
+      staffName,
+      "",
+      "",
+      "",
+      "",
+      "OK",
+      "スタッフとして重要事項説明を表示",
+      name
+    );
+
+    return {
+      success: true,
+      role: "staff",
+      staffName: staffName,
+      lineUserId: id,
+      displayName: name,
+      importantInfo: getImportantInfoLinks_(ss),
+      users: getLiffUserListFast_(ss, staffName),
+      message: ""
+    };
+  }
+
+  const match = findUserDirectoryMatchByLineOrName_(ss, id, name);
+  if (match) {
+    saveLineUserDirectory_(ss, {
+      source: "重要事項説明LIFF",
+      liffLineUserId: id,
+      displayName: name,
+      detectedUserName: match.name || "",
+      checkedAt: new Date()
+    });
+
+    saveLiffOperationLog_(
+      ss,
+      "getImportantInfo",
+      id,
+      "",
+      match.name || "",
+      "",
+      "",
+      "",
+      "OK",
+      "利用者として重要事項説明を表示",
+      name
+    );
+
+    return {
+      success: true,
+      linked: true,
+      role: "user",
+      userName: match.name,
+      userId: match.userId || "",
+      lineUserId: id,
+      liffLineUserId: match.liffLineUserId || id,
+      messagingLineUserId: match.messagingLineUserId || "",
+      displayName: name,
+      lineDisplayName: match.lineDisplayName || name,
+      importantInfo: getImportantInfoLinks_(ss),
+      message: ""
+    };
+  }
+
+  saveLineUserDirectory_(ss, {
+    source: "重要事項説明LIFF",
+    liffLineUserId: id,
+    displayName: name,
+    checkedAt: new Date()
+  });
+  saveUnregisteredLiffLogin_(ss, id, name, "getImportantInfo");
+
+  return {
+    success: false,
+    linked: false,
+    role: "",
+    message: "利用者様またはスタッフとして登録後に確認できます。スタッフへお問い合わせください。",
+    lineUserId: id,
+    displayName: name,
+    importantInfo: {}
   };
 }
 
