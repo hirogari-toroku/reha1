@@ -1326,6 +1326,18 @@
       return link;
     }
 
+    function redirectToImportantInfoPage() {
+      if (window.liff && liff.isInClient && liff.isInClient()) {
+        liff.openWindow({ url: IMPORTANT_INFO_PAGE_URL, external: false });
+        setTimeout(() => {
+          window.location.replace(IMPORTANT_INFO_PAGE_URL);
+        }, 300);
+        return;
+      }
+
+      window.location.replace(IMPORTANT_INFO_PAGE_URL);
+    }
+
     function appendTitleChartLink(container, item) {
       const resources = getUserResourceForItem(item);
       if (!isValidResourceUrl(resources.chartUrl)) return;
@@ -1541,15 +1553,14 @@
               document.getElementById("staff").innerText = "利用者：" + (data.userName || lineDisplayName || "確認済み") + " 様";
             }
             setMessage("確認できました。重要事項説明ページへ移動します...");
-            setTimeout(() => {
-              window.location.href = IMPORTANT_INFO_PAGE_URL;
-            }, 500);
+            setTimeout(redirectToImportantInfoPage, 500);
             return data;
           }
 
           document.getElementById("staff").innerText =
-            "登録情報を確認できませんでした。\nLINE表示名：" + (lineDisplayName || "未取得");
-          setMessage((data && data.message) || "利用者様またはスタッフとして登録後に確認できます。スタッフへお問い合わせください。");
+            "LINE認証を確認しました。\nLINE表示名：" + (lineDisplayName || "未取得");
+          setMessage("重要事項説明ページへ移動します...");
+          setTimeout(redirectToImportantInfoPage, 500);
           return data;
         })
         .catch(error => {
