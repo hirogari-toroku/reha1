@@ -1558,9 +1558,13 @@
           }
 
           document.getElementById("staff").innerText =
-            "LINE認証を確認しました。\nLINE表示名：" + (lineDisplayName || "未取得");
-          setMessage("重要事項説明ページへ移動します...");
-          setTimeout(redirectToImportantInfoPage, 500);
+            "登録が確認できませんでした。\n" +
+            "LINE表示名：" + (lineDisplayName || "未取得") + "\n" +
+            "確認用ID：" + (data && data.lineUserId ? data.lineUserId : lineUserId);
+          setMessage(
+            "重要事項説明は、利用者様またはスタッフとして登録済みの方のみ確認できます。\n" +
+            "まだ登録が確認できていません。スタッフへお問い合わせください。"
+          );
           return data;
         })
         .catch(error => {
