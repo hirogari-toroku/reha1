@@ -1152,7 +1152,8 @@
       document.getElementById("registerForm").classList.add("hidden");
       document.getElementById("qrPanel").classList.add("hidden");
       document.getElementById("adminForm").classList.add("hidden");
-      document.getElementById("importantInfoPanel").classList.remove("hidden");
+      document.getElementById("importantInfoPanel").classList.add("hidden");
+      document.getElementById("importantInfoLinks").innerHTML = "";
       setMessage("利用者様またはスタッフとして登録済みの場合のみ、重要事項説明を表示します。");
     }
 
