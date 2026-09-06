@@ -446,6 +446,14 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminCreateAndShareStaffFolder") {
+    return liffResponse_(e, adminCreateAndShareStaffFolderFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName,
+      e.parameter.staffName
+    ));
+  }
+
   if (action === "adminSaveRelationship") {
     return liffResponse_(e, adminSaveRelationshipFromLiff_(
       e.parameter.lineUserId,
@@ -8482,6 +8490,24 @@ function adminSetupStaffQuestionnaireAutoImportTriggerFromLiff_(lineUserId, disp
   return setupStaffQuestionnaireAutoImportTriggerCore_();
 }
 
+function adminCreateAndShareStaffFolderFromLiff_(lineUserId, displayName, staffName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  const targetStaffName = String(staffName || "").trim();
+  if (!targetStaffName) {
+    return {
+      success: false,
+      message: "スタッフ名を指定してください。"
+    };
+  }
+  return prepareStaffFolderIdsCore_(ss, {
+    createMissing: true,
+    shareWithGmail: true,
+    processOnlyMissingFolderId: true,
+    targetStaffName: targetStaffName
+  });
+}
+
 function adminSaveRelationshipFromLiff_(lineUserId, displayName, rowNumber, staffId, userId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
@@ -9208,6 +9234,7 @@ function prepareStaffFolderIdsCore_(ss, options) {
     const rowNumber = index + 2;
     const staffName = String(row[staffCols.name] || "").trim();
     if (!staffName) return;
+    if (options.targetStaffName && normalizeName_(staffName) !== normalizeName_(options.targetStaffName)) return;
 
     const currentFolderId = String(row[staffCols.payrollFolderId] || "").trim();
     if (options.processOnlyMissingFolderId && currentFolderId) return;
