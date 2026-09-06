@@ -425,6 +425,13 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminImportStaffBankQuestionnaire") {
+    return liffResponse_(e, adminImportStaffBankQuestionnaireFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "adminApplyLineUsers") {
     return liffResponse_(e, adminApplyLineUsersFromLiff_(
       e.parameter.lineUserId,
@@ -8455,6 +8462,12 @@ function adminImportUserQuestionnaireFromLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return importUserQuestionnaireToUserMasterCore_(ss);
+}
+
+function adminImportStaffBankQuestionnaireFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return importStaffBankQuestionnaireToStaffMasterCore_(ss);
 }
 
 function adminApplyLineUsersFromLiff_(lineUserId, displayName) {
