@@ -432,6 +432,13 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminSetupStaffQuestionnaireAutoImportTrigger") {
+    return liffResponse_(e, adminSetupStaffQuestionnaireAutoImportTriggerFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
   if (action === "adminSaveRelationship") {
     return liffResponse_(e, adminSaveRelationshipFromLiff_(
       e.parameter.lineUserId,
@@ -1214,6 +1221,36 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
         message: message
       };
     }
+
+    const scheduleStatus = String(linkedScheduleRow.status || "").trim();
+    if (scheduleStatus === "完了") {
+      const message = "この予定はすでに完了しています。重複登録を防止しました。";
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "重複", message);
+      return {
+        success: false,
+        duplicate: true,
+        message: message
+      };
+    }
+
+    if (type === "開始" && scheduleStatus === "訪問中") {
+      const message = "この予定はすでに開始済みです。重複登録を防止しました。";
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "重複", message);
+      return {
+        success: false,
+        duplicate: true,
+        message: message
+      };
+    }
+
+    if (type === "終了" && scheduleStatus !== "訪問中") {
+      const message = "開始登録がないため、終了実績は登録できません。先に開始を登録してください。";
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", message);
+      return {
+        success: false,
+        message: message
+      };
+    }
   }
 
   if (isRecentDuplicateVisit_(resultSheet, staffName, resolvedUserName, type, targetDate, targetTime, now)) {
@@ -1763,6 +1800,17 @@ function cancelScheduleFromLiff_(lineUserId, scheduleId) {
   }
 
   const row = target.row;
+  if (row.status === "完了" || row.status === "訪問中") {
+    const message = row.status === "完了"
+      ? "この予定はすでに完了しているため、キャンセルできません。"
+      : "この予定は開始済みのため、キャンセルできません。終了登録を確認してください。";
+    saveLiffOperationLog_(ss, "cancelSchedule", lineUserId, staffName, row.userName, "", row.visitDate, "", "失敗", message);
+    return {
+      success: false,
+      message: message
+    };
+  }
+
   const calendarId = getStaffCalendarId_(ss, lineUserId);
   const calendarStatus = cancelCalendarEvent_(calendarId, row.eventId);
 
@@ -1849,6 +1897,17 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
   }
 
   const targetRow = target.row;
+  if (targetRow.status === "完了" || targetRow.status === "訪問中") {
+    const message = targetRow.status === "完了"
+      ? "この予定はすでに完了しているため、変更できません。"
+      : "この予定は開始済みのため、変更できません。終了登録を確認してください。";
+    saveLiffOperationLog_(ss, "updateSchedule", lineUserId, staffName, targetRow.userName, "", visitDate, "", "失敗", message);
+    return {
+      success: false,
+      message: message
+    };
+  }
+
   const newDate = dateList[0];
 
   if (isDuplicateSchedule_(scheduleSheet, staffName, resolvedUserName, newDate, targetRow.rowNumber)) {
@@ -2138,6 +2197,7 @@ function getEditableScheduleRow_(sheet, staffName, scheduleId) {
       userName: userName,
       visitDate: formatScheduleDateForLiff_(visitDate, row[0]),
       visitDateValue: formatScheduleDateValueForLiff_(visitDate, row[0]),
+      status: status,
       eventId: String(row[7] || "")
     }
   };
@@ -8401,6 +8461,12 @@ function adminApplyLineUsersFromLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return applyLineUserDirectoryToMastersCore_(ss);
+}
+
+function adminSetupStaffQuestionnaireAutoImportTriggerFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return setupStaffQuestionnaireAutoImportTriggerCore_();
 }
 
 function adminSaveRelationshipFromLiff_(lineUserId, displayName, rowNumber, staffId, userId) {

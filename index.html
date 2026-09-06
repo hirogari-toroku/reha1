@@ -940,6 +940,9 @@
           <button type="button" class="secondary" onclick="runAdminAction('adminImportUserQuestionnaire')">利用者アンケート取込</button>
           <button type="button" class="secondary" onclick="runAdminAction('adminApplyLineUsers')">LINE情報を反映</button>
           <button type="button" class="secondary" onclick="runAdminAction('adminSetupIds')">ID列を整える</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminUpdateLiffDisplayMaster')">LIFF表示更新</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminRunCouponAll')">回数券更新</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminSetupStaffQuestionnaireAutoImportTrigger')">スタッフ登録トリガー設定</button>
         </div>
       </div>
       <div class="admin-section-title">代理表示テスト</div>
@@ -2184,32 +2187,33 @@
 
         const actions = document.createElement("div");
         actions.className = "schedule-card-actions";
+        const scheduleLocked = displayStatus === "訪問中" || displayStatus === "完了";
 
         const startButton = document.createElement("button");
         startButton.type = "button";
         startButton.className = "primary";
         startButton.textContent = "開始";
-        startButton.disabled = scheduleActionSubmitting || displayStatus === "訪問中" || displayStatus === "完了";
+        startButton.disabled = scheduleActionSubmitting || scheduleLocked;
         startButton.onclick = () => recordVisitForSchedule(item, "開始");
 
         const endButton = document.createElement("button");
         endButton.type = "button";
         endButton.className = "primary";
         endButton.textContent = "終了";
-        endButton.disabled = scheduleActionSubmitting || displayStatus === "未開始" || displayStatus === "完了";
+        endButton.disabled = scheduleActionSubmitting || displayStatus !== "訪問中";
         endButton.onclick = () => recordVisitForSchedule(item, "終了");
 
         const editToggle = document.createElement("button");
         editToggle.type = "button";
         editToggle.textContent = "変更";
-        editToggle.disabled = scheduleActionSubmitting;
+        editToggle.disabled = scheduleActionSubmitting || scheduleLocked;
         editToggle.onclick = () => toggleScheduleEdit(item.id);
 
         const cancelButton = document.createElement("button");
         cancelButton.type = "button";
         cancelButton.className = "danger";
         cancelButton.textContent = "キャンセル";
-        cancelButton.disabled = scheduleActionSubmitting;
+        cancelButton.disabled = scheduleActionSubmitting || scheduleLocked;
         cancelButton.onclick = () => cancelSchedule(item.id, item.userName, item.visitDate);
 
         actions.appendChild(startButton);
