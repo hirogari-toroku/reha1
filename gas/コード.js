@@ -8518,6 +8518,7 @@ function adminCreateAndShareStaffFolderFromLiff_(lineUserId, displayName, staffN
     createMissing: true,
     shareWithGmail: true,
     processOnlyMissingFolderId: true,
+    retryShareExistingFolder: true,
     targetStaffName: targetStaffName
   });
 }
@@ -9418,18 +9419,33 @@ function prepareStaffFolderIdsCore_(ss, options) {
     if (options.targetStaffName && normalizeName_(staffName) !== normalizeName_(options.targetStaffName)) return;
 
     const currentFolderId = String(row[staffCols.payrollFolderId] || "").trim();
-    if (options.processOnlyMissingFolderId && currentFolderId) return;
+    if (options.processOnlyMissingFolderId && currentFolderId && !(options.retryShareExistingFolder && options.shareWithGmail)) return;
 
     const staffFolderName = buildStaffFolderNameFromRow_(row, headerMap, staffName);
     const gmail = getPreferredGmailAddressFromStaffRow_(row, headerMap);
-    const matchResult = findStaffFolderMatch_(allFolders, staffFolderName, staffName);
+    let folderInfo = currentFolderId ? findStaffFolderById_(allFolders, currentFolderId) : null;
+    if (currentFolderId && !folderInfo) {
+      try {
+        const folder = DriveApp.getFolderById(currentFolderId);
+        folderInfo = {
+          id: folder.getId(),
+          name: folder.getName(),
+          location: "スタッフフォルダID",
+          folder: folder
+        };
+      } catch (error) {
+        conflicts.push(staffName + "：スタッフフォルダID確認失敗 " + error.message);
+        return;
+      }
+    }
+    const matchResult = folderInfo ? { folderInfo: folderInfo, conflict: false, names: [] } : findStaffFolderMatch_(allFolders, staffFolderName, staffName);
 
     if (matchResult.conflict) {
       conflicts.push(staffName + "：" + matchResult.names.join(" / "));
       return;
     }
 
-    let folderInfo = matchResult.folderInfo;
+    folderInfo = matchResult.folderInfo;
     if (!folderInfo && options.createMissing) {
       if (!staffFolderName || staffFolderName === staffName) {
         skipped.push(staffName + "（姓・名・資格の確認が必要）");
@@ -9501,6 +9517,15 @@ function prepareStaffFolderIdsCore_(ss, options) {
 function listStaffFoldersForMatching_() {
   return listStaffFoldersInParent_(STAFF_FOLDER_PARENT_FOLDER_ID, "スタッフ一覧")
     .concat(listStaffFoldersInParent_(INACTIVE_STAFF_FOLDER_ID, "休止中スタッフ"));
+}
+
+function findStaffFolderById_(folderInfos, folderId) {
+  const targetId = String(folderId || "").trim();
+  if (!targetId) return null;
+  for (let i = 0; i < folderInfos.length; i++) {
+    if (String(folderInfos[i].id || "").trim() === targetId) return folderInfos[i];
+  }
+  return null;
 }
 
 function listStaffFoldersInParent_(parentFolderId, location) {
