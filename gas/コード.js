@@ -35,6 +35,7 @@ const STAFF_FOLDER_ID_HEADER = "スタッフフォルダID";
 const LEGACY_PAYROLL_FOLDER_ID_HEADER = "給与明細フォルダID";
 const STAFF_BANK_REGISTRATION_STATUS_HEADER = "振込先登録状況";
 const STAFF_GMAIL_STATUS_HEADER = "Gmail確認";
+const STAFF_FOLDER_SHARE_STATUS_HEADER = "スタッフフォルダ共有状況";
 const LIFF_STAFF_FOLDER_LINK_HEADER = "スタッフフォルダリンク";
 const LIFF_PAYSLIP_FOLDER_LINK_HEADER = "給与明細リンク";
 const USER_CHART_URL_HEADER = "カルテURL";
@@ -9401,6 +9402,7 @@ function prepareStaffFolderIdsCore_(ss, options) {
 
   const headerMap = getHeaderColumnMap_(sheet);
   const staffCols = getStaffMasterColumnMap_(sheet);
+  const folderShareStatusCol = getColumnIndex_(headerMap, [STAFF_FOLDER_SHARE_STATUS_HEADER], -1);
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
   const allFolders = listStaffFoldersForMatching_();
   const updates = [];
@@ -9487,24 +9489,51 @@ function prepareStaffFolderIdsCore_(ss, options) {
       foundActive.push(staffName + "：" + folderInfo.name);
     }
 
+    if (options.shareWithGmail && !gmail) {
+      skipped.push(staffName + "（Gmailアドレス未確認）");
+      if (folderShareStatusCol >= 0) {
+        updates.push({
+          rowNumber: rowNumber,
+          column: folderShareStatusCol + 1,
+          value: "Gmailアドレス未確認"
+        });
+      }
+      return;
+    }
+
     if (options.shareWithGmail && gmail) {
       const folder = folderInfo.folder || DriveApp.getFolderById(folderInfo.id);
       try {
         folder.addViewer(gmail);
         shared.push(staffName + "：" + gmail);
+        if (folderShareStatusCol >= 0) {
+          updates.push({
+            rowNumber: rowNumber,
+            column: folderShareStatusCol + 1,
+            value: "共有済：" + gmail
+          });
+        }
       } catch (error) {
         conflicts.push(staffName + "：共有失敗 " + error.message);
+        if (folderShareStatusCol >= 0) {
+          updates.push({
+            rowNumber: rowNumber,
+            column: folderShareStatusCol + 1,
+            value: "共有失敗：" + error.message
+          });
+        }
       }
     }
   });
 
   updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+  const folderIdUpdateCount = updates.filter(update => update.column === staffCols.payrollFolderId + 1).length;
 
   return {
     success: true,
     message:
       "スタッフフォルダIDの確認が完了しました。\n" +
-      "既存フォルダIDを反映：" + updates.length + "件\n" +
+      "既存フォルダIDを反映：" + folderIdUpdateCount + "件\n" +
       "既存フォルダ確認（スタッフ一覧）：" + foundActive.length + "件\n" +
       "既存フォルダ確認（休止中）：" + foundInactive.length + "件\n" +
       "新規作成：" + created.length + "件\n" +
@@ -9838,6 +9867,7 @@ function ensureStaffMasterProfileColumns_(sheet) {
     "電話番号",
     "メールアドレス",
     STAFF_GMAIL_STATUS_HEADER,
+    STAFF_FOLDER_SHARE_STATUS_HEADER,
     "資格",
     "資格取得年",
     "関連資格",
