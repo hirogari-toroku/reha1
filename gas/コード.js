@@ -8,6 +8,7 @@ const STAFF_USER_MASTER_SHEET_NAME = "スタッフ利用者マスタ";
 const LIFF_DISPLAY_MASTER_SHEET_NAME = "LIFF表示用マスタ";
 const LINE_USER_DIRECTORY_SHEET_NAME = "LINEユーザー一覧";
 const STAFF_REGISTRATION_LOG_SHEET_NAME = "スタッフ登録処理ログ";
+const USER_REGISTRATION_LOG_SHEET_NAME = "利用者登録処理ログ";
 const IMPORTANT_INFO_MASTER_SHEET_NAME = "重要事項説明マスタ";
 const PAYROLL_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
 const STAFF_FOLDER_PARENT_FOLDER_ID = "1V29zEuKH4XnPy2cJUTBsv-mTfYKv2E_s";
@@ -441,6 +442,13 @@ function doGet(e) {
 
   if (action === "adminSetupStaffQuestionnaireAutoImportTrigger") {
     return liffResponse_(e, adminSetupStaffQuestionnaireAutoImportTriggerFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName
+    ));
+  }
+
+  if (action === "adminSetupUserQuestionnaireAutoImportTrigger") {
+    return liffResponse_(e, adminSetupUserQuestionnaireAutoImportTriggerFromLiff_(
       e.parameter.lineUserId,
       e.parameter.displayName
     ));
@@ -8490,6 +8498,12 @@ function adminSetupStaffQuestionnaireAutoImportTriggerFromLiff_(lineUserId, disp
   return setupStaffQuestionnaireAutoImportTriggerCore_();
 }
 
+function adminSetupUserQuestionnaireAutoImportTriggerFromLiff_(lineUserId, displayName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+  return setupUserQuestionnaireAutoImportTriggerCore_();
+}
+
 function adminCreateAndShareStaffFolderFromLiff_(lineUserId, displayName, staffName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
@@ -8689,6 +8703,31 @@ function importStaffBankQuestionnaireToStaffMaster() {
 function importStaffBankQuestionnaireToStaffMasterNoUi() {
   const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
   return importStaffBankQuestionnaireToStaffMasterCore_(ss);
+}
+
+function setupUserQuestionnaireAutoImportTrigger() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    "利用者登録フォーム自動処理の確認",
+    "利用者登録フォームの回答後に、利用者マスタ取込・LINE情報反映・紹介者管理・LIFF表示用マスタ更新を自動実行するトリガーを設定します。\n\nフォルダ作成や外部通知送信は行いません。\n設定してよろしいですか？",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response !== ui.Button.OK) {
+    ui.alert("利用者登録フォーム自動処理の設定はキャンセルしました。");
+    return;
+  }
+
+  const result = setupUserQuestionnaireAutoImportTriggerCore_();
+  ui.alert(result.message);
+}
+
+function setupUserQuestionnaireAutoImportTriggerNoUi() {
+  return setupUserQuestionnaireAutoImportTriggerCore_();
+}
+
+function handleUserQuestionnaireFormSubmit(e) {
+  return runUserQuestionnaireAutoImportCore_(e);
 }
 
 function fillStaffReceiverNamesFromKana() {
@@ -9087,6 +9126,80 @@ function setupStaffQuestionnaireAutoImportTriggerCore_() {
   };
 }
 
+function setupUserQuestionnaireAutoImportTriggerCore_() {
+  const sourceSs = SpreadsheetApp.openById(USER_QUESTIONNAIRE_SPREADSHEET_ID);
+  const triggers = ScriptApp.getProjectTriggers();
+  let deletedCount = 0;
+
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === "handleUserQuestionnaireFormSubmit") {
+      ScriptApp.deleteTrigger(trigger);
+      deletedCount++;
+    }
+  });
+
+  ScriptApp
+    .newTrigger("handleUserQuestionnaireFormSubmit")
+    .forSpreadsheet(sourceSs)
+    .onFormSubmit()
+    .create();
+
+  return {
+    success: true,
+    message:
+      "利用者登録フォームの自動処理トリガーを設定しました。\n" +
+      "既存トリガー削除：" + deletedCount + "件\n" +
+      "新規トリガー作成：1件\n" +
+      "次回以降、フォーム回答後に利用者マスタ取込・LINE情報反映・紹介者管理・LIFF表示用マスタ更新を自動実行します。"
+  };
+}
+
+function runUserQuestionnaireAutoImportCore_(event) {
+  const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
+  const userName = getUserNameFromFormSubmitEvent_(event);
+  let importResult = null;
+  let lineApplyResult = null;
+  let idResult = null;
+  let referralResult = null;
+  let status = "完了";
+  let errorMessage = "";
+
+  try {
+    importResult = importUserQuestionnaireToUserMasterCore_(ss);
+    updateLineUserDirectoryLinksWithoutAlert_(ss, ensureLineUserDirectorySheet_(ss));
+    lineApplyResult = applyLineUserDirectoryToMastersCore_(ss);
+    idResult = setupMasterIdColumnsCore_(ss);
+    referralResult = syncReferralDataCore_(ss);
+    updateLiffDisplayMaster(true);
+  } catch (error) {
+    status = "失敗";
+    errorMessage = error.message;
+  }
+
+  appendUserRegistrationLog_(ss, {
+    receivedAt: new Date(),
+    userName: userName,
+    status: status,
+    importMessage: importResult ? importResult.message : "",
+    lineMessage: lineApplyResult ? lineApplyResult.message : "",
+    idMessage: idResult ? idResult.message : "",
+    referralMessage: referralResult ? referralResult.message : "",
+    liffMessage: status === "完了" ? "LIFF表示用マスタを更新しました。" : "",
+    errorMessage: errorMessage
+  });
+
+  return {
+    success: status === "完了",
+    status: status,
+    userName: userName,
+    importResult: importResult,
+    lineApplyResult: lineApplyResult,
+    idResult: idResult,
+    referralResult: referralResult,
+    errorMessage: errorMessage
+  };
+}
+
 function runStaffQuestionnaireAutoImportCore_(event) {
   const ss = SpreadsheetApp.openById(MAIN_SPREADSHEET_ID);
   const staffName = getStaffNameFromFormSubmitEvent_(event);
@@ -9120,6 +9233,23 @@ function runStaffQuestionnaireAutoImportCore_(event) {
     folderResult: folderResult,
     errorMessage: errorMessage
   };
+}
+
+function getUserNameFromFormSubmitEvent_(event) {
+  if (!event || !event.namedValues) return "";
+
+  const namedValues = event.namedValues;
+  const getNamedValue = keys => {
+    for (let i = 0; i < keys.length; i++) {
+      const values = namedValues[keys[i]];
+      if (values && values.length > 0 && String(values[0] || "").trim()) {
+        return String(values[0] || "").trim();
+      }
+    }
+    return "";
+  };
+
+  return getNamedValue(["利用者名", "氏名", "お名前", "名前", "フルネーム"]);
 }
 
 function getStaffNameFromFormSubmitEvent_(event) {
@@ -9156,6 +9286,21 @@ function appendStaffRegistrationLog_(ss, result) {
   ]);
 }
 
+function appendUserRegistrationLog_(ss, result) {
+  const sheet = ensureUserRegistrationLogSheet_(ss);
+  sheet.appendRow([
+    result.receivedAt,
+    result.userName,
+    result.status,
+    result.importMessage,
+    result.lineMessage,
+    result.idMessage,
+    result.referralMessage,
+    result.liffMessage,
+    result.errorMessage
+  ]);
+}
+
 function ensureStaffRegistrationLogSheet_(ss) {
   let sheet = ss.getSheetByName(STAFF_REGISTRATION_LOG_SHEET_NAME);
   const headers = [
@@ -9169,6 +9314,42 @@ function ensureStaffRegistrationLogSheet_(ss) {
 
   if (!sheet) {
     sheet = ss.insertSheet(STAFF_REGISTRATION_LOG_SHEET_NAME);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+    return sheet;
+  }
+
+  headers.forEach((header, index) => {
+    if (!String(sheet.getRange(1, index + 1).getValue() || "").trim()) {
+      sheet.getRange(1, index + 1).setValue(header);
+    }
+  });
+
+  return sheet;
+}
+
+function ensureUserRegistrationLogSheet_(ss) {
+  let sheet = ss.getSheetByName(USER_REGISTRATION_LOG_SHEET_NAME);
+  const headers = [
+    "日時",
+    "利用者名",
+    "処理結果",
+    "利用者マスタ取込結果",
+    "LINE情報反映結果",
+    "ID列整備結果",
+    "紹介者管理結果",
+    "LIFF表示更新結果",
+    "エラー内容"
+  ];
+
+  if (!sheet) {
+    sheet = ss.insertSheet(USER_REGISTRATION_LOG_SHEET_NAME);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
     return sheet;
@@ -10007,6 +10188,7 @@ function onOpen() {
     .addItem("📁 既存スタッフフォルダIDを確認・反映", "syncExistingStaffFolderIds")
     .addItem("📁 新規スタッフフォルダを作成・共有", "createAndShareStaffFolders")
     .addItem("⚙️ スタッフ登録フォーム自動処理を設定", "setupStaffQuestionnaireAutoImportTrigger")
+    .addItem("⚙️ 利用者登録フォーム自動処理を設定", "setupUserQuestionnaireAutoImportTrigger")
     .addItem("🏦 口座登録フォームをスタッフマスタへ取込", "importStaffBankQuestionnaireToStaffMaster")
     .addItem("🔤 カナから口座名義を補完", "fillStaffReceiverNamesFromKana")
     .addItem("🎫 回数券を更新", "runCouponAll")
