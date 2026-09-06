@@ -83,8 +83,9 @@
 - LIFF画面に重要事項説明パネルを追加。
 - 登録済みスタッフ・紐づき済み利用者だけに表示。
 - 未登録・未紐づけの人には表示しない。
-- 本番GAS Webアプリは `@137` にデプロイ済み。
+- 本番GAS Webアプリは `@143` にデプロイ済み。
 - GitHub Pages用 `index.html` もpush済み。
+- GitHub Actionsの `Deploy GAS` は、`CLASPRC_JSON` 再認証後に成功確認済み。
 - コミット: `2898f0b Add important information links to LIFF`
 
 ## まだ必要な操作
@@ -97,7 +98,8 @@
 ## 注意
 
 - `clasp run updateLiffDisplayMaster -p '[true]'` はこの環境では `NOT_FOUND` で失敗したため、メニューから実行する方が安全。
-- `clasp push` と本番デプロイは前回成功済み。
+- `clasp push` と本番デプロイは成功済み。
+- `main` に `gas/**` の変更をpushすると、GitHub ActionsからGAS本番デプロイまで自動で進む。
 
 ## LIFFモード
 
