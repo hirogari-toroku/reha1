@@ -463,6 +463,15 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminSendStaffBankRegistrationGuide") {
+    return liffResponse_(e, adminSendStaffBankRegistrationGuideFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName,
+      e.parameter.staffId,
+      e.parameter.userId
+    ));
+  }
+
   if (action === "adminSaveRelationship") {
     return liffResponse_(e, adminSaveRelationshipFromLiff_(
       e.parameter.lineUserId,
@@ -5725,7 +5734,12 @@ function sendPushMessage_(ss, lineUserId, staffName, message) {
     .getScriptProperties()
     .getProperty("LINE_CHANNEL_ACCESS_TOKEN");
 
-  if (!lineUserId || !message) return;
+  if (!lineUserId || !message) {
+    return {
+      success: false,
+      message: "LINEユーザーIDまたはメッセージが空です。"
+    };
+  }
 
   if (!token) {
     saveLineMessageLog_(
@@ -5736,7 +5750,10 @@ function sendPushMessage_(ss, lineUserId, staffName, message) {
       lineUserId || "",
       "LINE_CHANNEL_ACCESS_TOKENが未設定のため、確認LINEを送信できませんでした。"
     );
-    return;
+    return {
+      success: false,
+      message: "LINE_CHANNEL_ACCESS_TOKENが未設定です。"
+    };
   }
 
   const response = UrlFetchApp.fetch("https://api.line.me/v2/bot/message/push", {
@@ -5768,7 +5785,12 @@ function sendPushMessage_(ss, lineUserId, staffName, message) {
       lineUserId || "",
       "LINE Push送信失敗：" + responseCode + " " + response.getContentText()
     );
-    return;
+    return {
+      success: false,
+      statusCode: responseCode,
+      responseText: response.getContentText(),
+      message: "LINE Push送信失敗：" + responseCode
+    };
   }
 
   saveLineMessageLog_(
@@ -5779,6 +5801,13 @@ function sendPushMessage_(ss, lineUserId, staffName, message) {
     lineUserId || "",
     message
   );
+
+  return {
+    success: true,
+    statusCode: responseCode,
+    responseText: response.getContentText(),
+    message: "LINEを送信しました。"
+  };
 }
 
 /**
@@ -8533,6 +8562,75 @@ function adminCreateAndShareStaffFolderFromLiff_(lineUserId, displayName, staffN
   });
 }
 
+function adminSendStaffBankRegistrationGuideFromLiff_(lineUserId, displayName, staffId, userId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+
+  const staffMap = getAdminStaffMap_(ss);
+  const userMap = getAdminUserMap_(ss);
+  const staff = staffMap.byId[String(staffId || "").trim()];
+  const user = userMap.byId[String(userId || "").trim()] || {};
+
+  if (!staff || !staff.id) {
+    return {
+      success: false,
+      message: "銀行登録フォームを案内するスタッフを確認できませんでした。画面を更新してください。"
+    };
+  }
+
+  const bankStatus = String(staff.bankRegistrationStatus || "").trim();
+  if (bankStatus === "登録済" || bankStatus === "登録済み") {
+    return {
+      success: false,
+      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user),
+      message: staff.name + "さんは振込先登録状況が「" + bankStatus + "」です。送信は行いませんでした。"
+    };
+  }
+
+  if (!staff.messagingLineUserId) {
+    return {
+      success: false,
+      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user),
+      message: staff.name + "さんのMessaging API LINEユーザーIDが未登録のため、LINE送信できません。"
+    };
+  }
+
+  const formUrl = getStaffBankRegistrationFormUrl_();
+  if (!formUrl) {
+    return {
+      success: false,
+      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user),
+      message: "銀行登録フォームURLを確認できませんでした。口座登録フォーム回答スプレッドシートの紐づけ、またはScript PropertiesのSTAFF_BANK_REGISTRATION_FORM_URLを確認してください。"
+    };
+  }
+
+  const message = buildStaffBankRegistrationGuideMessage_(staff, user, formUrl);
+  const result = sendPushMessage_(ss, staff.messagingLineUserId, staff.name, message);
+
+  saveLiffOperationLog_(
+    ss,
+    "adminSendStaffBankRegistrationGuide",
+    lineUserId,
+    staff.name || "",
+    user.name || "",
+    "",
+    "",
+    "",
+    result.success ? "成功" : "失敗",
+    result.success
+      ? "管理者LIFFから銀行登録フォーム案内を送信しました。"
+      : "管理者LIFFから銀行登録フォーム案内を送信できませんでした。" + (result.message ? " " + result.message : "")
+  );
+
+  return {
+    success: result.success,
+    assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user),
+    message: result.success
+      ? staff.name + "さんへ銀行登録フォーム案内を送信しました。"
+      : staff.name + "さんへの銀行登録フォーム案内送信に失敗しました。" + (result.message ? "\n" + result.message : "")
+  };
+}
+
 function adminSaveRelationshipFromLiff_(lineUserId, displayName, rowNumber, staffId, userId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
@@ -8738,9 +8836,60 @@ function buildAssignmentStartChecklist_(ss, staff, user) {
     staffId: staff && staff.id || "",
     userName: userName,
     userId: user && user.id || "",
+    canSendBankRegistrationGuide: !!(
+      staff &&
+      staff.id &&
+      staff.messagingLineUserId &&
+      !(bankStatus === "登録済" || bankStatus === "登録済み")
+    ),
+    bankRegistrationGuideDisabledReason: getBankRegistrationGuideDisabledReason_(staff, bankStatus),
     items: items,
     nextActions: buildAssignmentStartNextActions_(items)
   };
+}
+
+function getBankRegistrationGuideDisabledReason_(staff, bankStatus) {
+  if (!staff || !staff.id) return "スタッフを確認できません。";
+  if (!staff.messagingLineUserId) return "スタッフのMessaging API LINEユーザーIDが未登録です。";
+  if (bankStatus === "登録済" || bankStatus === "登録済み") return "振込先は登録済みです。";
+  return "";
+}
+
+function getStaffBankRegistrationFormUrl_() {
+  const props = PropertiesService.getScriptProperties();
+  const configuredUrl = props.getProperty("STAFF_BANK_REGISTRATION_FORM_URL");
+  if (configuredUrl) return configuredUrl;
+
+  try {
+    const sourceSs = SpreadsheetApp.openById(STAFF_BANK_QUESTIONNAIRE_SPREADSHEET_ID);
+    return sourceSs.getFormUrl() || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function buildStaffBankRegistrationGuideMessage_(staff, user, formUrl) {
+  const lines = [
+    (staff && staff.name ? staff.name + "さん" : "スタッフの皆さま"),
+    "",
+    "担当利用者の登録が完了しました。",
+    "次回からスタッフ用Webアプリを開くと、担当利用者の名前を選択できます。"
+  ];
+
+  if (user && user.name) {
+    lines.push("担当利用者：" + user.name + " 様");
+  }
+
+  return lines.concat([
+    "",
+    "給与振込に必要な口座情報の登録をお願いします。",
+    "下のフォームから、銀行名、支店番号、預金種目、口座番号、口座名義カナを入力してください。",
+    "",
+    formUrl,
+    "",
+    "すでに登録済みの場合は、この案内は行き違いです。",
+    "よろしくお願いします。"
+  ]).join("\n");
 }
 
 function buildAssignmentStartNextActions_(items) {

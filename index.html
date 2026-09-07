@@ -700,6 +700,24 @@
       color: #334e68;
     }
 
+    .admin-start-action-button {
+      justify-self: start;
+      margin-top: 8px;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 8px;
+      background: #2f9e44;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .admin-start-action-button:disabled {
+      background: #9aa8b5;
+      cursor: not-allowed;
+    }
+
     .admin-link-editor {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -2014,6 +2032,16 @@
 
         row.appendChild(label);
         row.appendChild(message);
+        if (item.key === "bank" && item.status !== "ok") {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "admin-start-action-button";
+          button.textContent = "銀行登録フォームを案内";
+          button.disabled = !checklist.canSendBankRegistrationGuide;
+          button.title = checklist.bankRegistrationGuideDisabledReason || "スタッフへ銀行登録フォーム案内を送信します";
+          button.onclick = () => sendStaffBankRegistrationGuide(checklist.staffId, checklist.userId);
+          message.appendChild(button);
+        }
         list.appendChild(row);
       });
       container.appendChild(list);
@@ -2235,6 +2263,18 @@
       if (!window.confirm("この紐づけを解除しますか？")) return;
       runAdminAction("adminDeleteRelationship", {
         rowNumber: rowNumber
+      });
+    }
+
+    function sendStaffBankRegistrationGuide(staffId, userId) {
+      if (!staffId) {
+        setMessage("スタッフを確認できません。");
+        return;
+      }
+      if (!window.confirm("このスタッフへ銀行登録フォーム案内をLINE送信しますか？")) return;
+      runAdminAction("adminSendStaffBankRegistrationGuide", {
+        staffId: staffId,
+        userId: userId || ""
       });
     }
 
