@@ -86,10 +86,10 @@
 - LIFF画面に重要事項説明パネルを追加。
 - 登録済みスタッフ・紐づき済み利用者だけに表示。
 - 未登録・未紐づけの人には表示しない。
-- 本番GAS Webアプリは `@148` にデプロイ済み。
+- 本番GAS Webアプリは `@151` にデプロイ済み。
 - GitHub Pages用 `index.html` もpush済み。
-- GitHub Actionsの `Deploy GAS` は、`CLASPRC_JSON` 再認証後に成功確認済み。
-- コミット: `2898f0b Add important information links to LIFF`
+- 2026-09-07に `contact@reha-hirogari.com` でclasp再認証済み。GitHub Actions用の `CLASPRC_JSON` も更新済みで、`Deploy GAS` 成功確認済み。
+- コミット: `8e85f29 Add assignment start readiness panel`
 
 ## まだ必要な操作
 
