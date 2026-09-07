@@ -8311,7 +8311,8 @@ function getAdminRelationshipData_(ss) {
       userStatus: user.status || "",
       userLiffLinked: !!user.liffLineUserId,
       userMessagingLinked: !!user.messagingLineUserId,
-      issueText: relationIssues.join("、")
+      issueText: relationIssues.join("、"),
+      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user)
     };
 
     relationships.push(relationship);
@@ -8362,7 +8363,11 @@ function getAdminStaffMap_(ss) {
       id: id,
       lineDisplayName: String(row[cols.lineDisplayName] || "").trim(),
       messagingLineUserId: String(row[cols.lineUserId] || "").trim(),
-      liffLineUserId: String(row[cols.liffLineUserId] || "").trim()
+      liffLineUserId: String(row[cols.liffLineUserId] || "").trim(),
+      gmail: getPreferredGmailAddressFromStaffRow_(row, headerMap),
+      staffFolderId: String(row[cols.payrollFolderId] || "").trim(),
+      folderShareStatus: getRowValueByHeaders_(row, headerMap, [STAFF_FOLDER_SHARE_STATUS_HEADER], -1),
+      bankRegistrationStatus: cols.bankRegistrationStatus >= 0 ? String(row[cols.bankRegistrationStatus] || "").trim() : ""
     };
 
     if (name) map.byName[normalizeName_(name)] = item;
@@ -8386,6 +8391,8 @@ function getAdminUserMap_(ss) {
   const messagingLineUserIdCol = getColumnIndex_(headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], -1);
   const liffLineUserIdCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], -1);
   const statusCol = getColumnIndex_(headerMap, ["状態"], -1);
+  const preferredWeekdayCol = getColumnIndex_(headerMap, ["訪問希望曜日", "希望曜日"], -1);
+  const preferredTimeCol = getColumnIndex_(headerMap, ["訪問希望時間帯", "希望時間帯"], -1);
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
 
   values.forEach(row => {
@@ -8397,7 +8404,9 @@ function getAdminUserMap_(ss) {
       lineDisplayName: lineDisplayNameCol >= 0 ? String(row[lineDisplayNameCol] || "").trim() : "",
       messagingLineUserId: messagingLineUserIdCol >= 0 ? String(row[messagingLineUserIdCol] || "").trim() : "",
       liffLineUserId: liffLineUserIdCol >= 0 ? String(row[liffLineUserIdCol] || "").trim() : "",
-      status: statusCol >= 0 ? String(row[statusCol] || "").trim() : ""
+      status: statusCol >= 0 ? String(row[statusCol] || "").trim() : "",
+      preferredWeekday: preferredWeekdayCol >= 0 ? String(row[preferredWeekdayCol] || "").trim() : "",
+      preferredTime: preferredTimeCol >= 0 ? String(row[preferredTimeCol] || "").trim() : ""
     };
 
     if (name) map.byName[normalizeName_(name)] = item;
@@ -8631,9 +8640,172 @@ function saveStaffUserRelationship_(ss, rowNumber, staffId, userId) {
   setupMasterIdColumnsCore_(ss);
   updateLiffDisplayMaster(true);
 
+  const checklist = buildAssignmentStartChecklist_(ss, staff, user);
+
   return {
     success: true,
-    message: "紐づけを保存しました。\n" + staff.name + " → " + user.name
+    message: "紐づけを保存しました。\n" + staff.name + " → " + user.name,
+    assignmentStartChecklist: checklist
+  };
+}
+
+function buildAssignmentStartChecklist_(ss, staff, user) {
+  const staffName = staff && staff.name ? staff.name : "";
+  const userName = user && user.name ? user.name : "";
+  const scheduleStatus = getAssignmentScheduleStatus_(ss, staffName, userName);
+  const folderShareStatus = String(staff && staff.folderShareStatus || "").trim();
+  const bankStatus = String(staff && staff.bankRegistrationStatus || "").trim();
+  const userStatus = String(user && user.status || "").trim();
+  const importantInfo = getImportantInfoLinks_(ss);
+  const hasImportantInfo = !!(importantInfo.pdfUrl || importantInfo.videoUrl || importantInfo.consentFormUrl);
+  const items = [
+    {
+      key: "liffDisplay",
+      label: "LIFF表示",
+      status: "ok",
+      message: "紐づけ保存後にLIFF表示用マスタを更新済みです。"
+    },
+    {
+      key: "staffLiff",
+      label: "スタッフLIFF",
+      status: staff && staff.liffLineUserId ? "ok" : "warn",
+      message: staff && staff.liffLineUserId
+        ? "スタッフのLIFF用LINEユーザーIDがあります。"
+        : "スタッフのLIFF用LINEユーザーIDが未設定です。"
+    },
+    {
+      key: "userLine",
+      label: "利用者LINE",
+      status: user && (user.liffLineUserId || user.messagingLineUserId) ? "ok" : "warn",
+      message: user && user.liffLineUserId
+        ? "利用者のLIFF用LINEユーザーIDがあります。"
+        : user && user.messagingLineUserId
+        ? "利用者のMessaging API LINEユーザーIDがあります。"
+        : "利用者LINEが未紐づけです。手動管理またはLINE情報反映を確認してください。"
+    },
+    {
+      key: "userStatus",
+      label: "利用者状態",
+      status: userStatus === "利用中" ? "ok" : "warn",
+      message: userStatus
+        ? "利用者状態：" + userStatus
+        : "利用者マスタの状態が未設定です。"
+    },
+    {
+      key: "staffFolder",
+      label: "スタッフフォルダ",
+      status: staff && staff.staffFolderId && folderShareStatus.indexOf("共有済") === 0 ? "ok" : "warn",
+      message: staff && staff.staffFolderId
+        ? "フォルダIDあり" + (folderShareStatus ? " / " + folderShareStatus : " / 共有状況未確認")
+        : "スタッフフォルダIDが未設定です。"
+    },
+    {
+      key: "bank",
+      label: "銀行登録",
+      status: bankStatus === "登録済" || bankStatus === "登録済み" ? "ok" : "pending",
+      message: bankStatus
+        ? "振込先登録状況：" + bankStatus
+        : "担当開始後、必要に応じてスタッフへ銀行登録フォームを案内してください。"
+    },
+    {
+      key: "visitPreference",
+      label: "訪問希望",
+      status: user && (user.preferredWeekday || user.preferredTime) ? "ok" : "pending",
+      message: user && (user.preferredWeekday || user.preferredTime)
+        ? "希望：" + (user.preferredWeekday || "-") + " / " + (user.preferredTime || "-")
+        : "利用者の訪問希望曜日・時間帯を確認してください。"
+    },
+    {
+      key: "firstSchedule",
+      label: "初回訪問予定",
+      status: scheduleStatus.exists ? "ok" : "pending",
+      message: scheduleStatus.exists
+        ? "登録済み予定：" + scheduleStatus.text
+        : "初回訪問候補日が決まったら、訪問予定を登録してください。"
+    },
+    {
+      key: "importantInfo",
+      label: "重要事項説明",
+      status: hasImportantInfo ? "ok" : "warn",
+      message: hasImportantInfo
+        ? "リッチメニューまたはLIFF画面から案内できます。自動送信はしません。"
+        : "重要事項説明マスタのURLを確認してください。"
+    }
+  ];
+
+  return {
+    staffName: staffName,
+    staffId: staff && staff.id || "",
+    userName: userName,
+    userId: user && user.id || "",
+    items: items,
+    nextActions: buildAssignmentStartNextActions_(items)
+  };
+}
+
+function buildAssignmentStartNextActions_(items) {
+  const actions = [];
+  const byKey = {};
+  (items || []).forEach(item => {
+    byKey[item.key] = item;
+  });
+
+  if (byKey.bank && byKey.bank.status !== "ok") {
+    actions.push("スタッフへ銀行登録フォームを案内する。");
+  }
+  if (byKey.visitPreference && byKey.visitPreference.status !== "ok") {
+    actions.push("利用者の訪問希望曜日・時間帯を確認する。");
+  }
+  if (byKey.firstSchedule && byKey.firstSchedule.status !== "ok") {
+    actions.push("初回訪問候補日が決まったら訪問予定を登録する。");
+  }
+  if (byKey.staffFolder && byKey.staffFolder.status !== "ok") {
+    actions.push("スタッフフォルダIDとGmail共有状況を確認する。");
+  }
+  if (!actions.length) {
+    actions.push("代理表示テストでスタッフ画面・利用者画面の見え方を確認する。");
+  }
+  return actions;
+}
+
+function getAssignmentScheduleStatus_(ss, staffName, userName) {
+  const sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2 || !staffName || !userName) {
+    return {
+      exists: false,
+      text: ""
+    };
+  }
+
+  ensureScheduleStatusColumns_(sheet);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
+  const targetStaff = normalizeName_(staffName);
+  const targetUser = normalizeName_(userName);
+  const matches = [];
+
+  values.forEach(row => {
+    const rowStaffName = String(row[1] || "").trim();
+    const rowUserName = String(row[2] || "").trim();
+    const visitDate = row[3];
+    const status = String(row[8] || "予定").trim();
+    if (normalizeName_(rowStaffName) !== targetStaff) return;
+    if (normalizeName_(rowUserName) !== targetUser) return;
+    if (!visitDate || isCancelledScheduleStatus_(status)) return;
+    matches.push({
+      date: parseComparisonDate_(visitDate, row[0]),
+      text: formatScheduleDateForLiff_(visitDate, row[0]) + "（" + (status || "予定") + "）"
+    });
+  });
+
+  matches.sort((a, b) => {
+    const aTime = a.date ? a.date.getTime() : 0;
+    const bTime = b.date ? b.date.getTime() : 0;
+    return aTime - bTime;
+  });
+
+  return {
+    exists: matches.length > 0,
+    text: matches.length ? matches[0].text : ""
   };
 }
 

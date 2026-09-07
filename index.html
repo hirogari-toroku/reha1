@@ -639,6 +639,67 @@
       background: #fffaf0;
     }
 
+    .admin-start-panel {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #b7e4c7;
+      border-radius: 8px;
+      background: #f6fff8;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .admin-start-panel-title {
+      color: #1f2933;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .admin-start-checklist {
+      display: grid;
+      gap: 6px;
+    }
+
+    .admin-start-item {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid #dde3ea;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .admin-start-item.ok {
+      border-color: #b7e4c7;
+    }
+
+    .admin-start-item.warn,
+    .admin-start-item.pending {
+      border-color: #f8d778;
+      background: #fffaf0;
+    }
+
+    .admin-start-item-label {
+      color: #334e68;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .admin-start-item-message {
+      min-width: 0;
+      color: #1f2933;
+      overflow-wrap: anywhere;
+    }
+
+    .admin-next-actions {
+      margin: 0;
+      padding-left: 20px;
+      color: #334e68;
+    }
+
     .admin-link-editor {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -762,6 +823,10 @@
       }
 
       .admin-link-editor {
+        grid-template-columns: 1fr;
+      }
+
+      .admin-start-item {
         grid-template-columns: 1fr;
       }
     }
@@ -984,6 +1049,7 @@
         </div>
         <button type="button" onclick="addAdminRelationship()">追加</button>
       </div>
+      <div id="adminAssignmentStartPanel" class="admin-start-panel hidden"></div>
       <div class="admin-section-title">スタッフと利用者のつながり</div>
       <div id="adminRelationshipList" class="admin-relationship-list"></div>
       <div class="admin-section-title">未紐づけ・確認候補</div>
@@ -1800,6 +1866,13 @@
             row.appendChild(meta);
           }
 
+          if (item.assignmentStartChecklist) {
+            const checklistPanel = document.createElement("div");
+            checklistPanel.className = "admin-start-panel";
+            renderAssignmentStartChecklist(checklistPanel, item.assignmentStartChecklist, false);
+            row.appendChild(checklistPanel);
+          }
+
           const editor = document.createElement("div");
           editor.className = "admin-link-editor";
 
@@ -1895,6 +1968,71 @@
         card.appendChild(label);
         container.appendChild(card);
       });
+    }
+
+    function renderAssignmentStartChecklist(container, checklist, showTitle) {
+      if (!container) return;
+      container.innerHTML = "";
+
+      if (!checklist) {
+        container.classList.add("hidden");
+        return;
+      }
+
+      container.classList.remove("hidden");
+      if (showTitle !== false) {
+        const title = document.createElement("div");
+        title.className = "admin-start-panel-title";
+        title.textContent =
+          "担当開始準備：" +
+          (checklist.staffName || "スタッフ未設定") +
+          " → " +
+          (checklist.userName || "利用者未設定");
+        container.appendChild(title);
+      } else {
+        const title = document.createElement("div");
+        title.className = "admin-start-panel-title";
+        title.textContent = "担当開始準備";
+        container.appendChild(title);
+      }
+
+      const list = document.createElement("div");
+      list.className = "admin-start-checklist";
+      (checklist.items || []).forEach(item => {
+        const row = document.createElement("div");
+        row.className = "admin-start-item " + (item.status || "");
+
+        const label = document.createElement("div");
+        label.className = "admin-start-item-label";
+        label.textContent =
+          (item.status === "ok" ? "OK " : item.status === "warn" ? "確認 " : "未完了 ") +
+          (item.label || "");
+
+        const message = document.createElement("div");
+        message.className = "admin-start-item-message";
+        message.textContent = item.message || "";
+
+        row.appendChild(label);
+        row.appendChild(message);
+        list.appendChild(row);
+      });
+      container.appendChild(list);
+
+      if ((checklist.nextActions || []).length) {
+        const nextTitle = document.createElement("div");
+        nextTitle.className = "admin-start-panel-title";
+        nextTitle.textContent = "次にやること";
+        container.appendChild(nextTitle);
+
+        const actions = document.createElement("ul");
+        actions.className = "admin-next-actions";
+        checklist.nextActions.forEach(action => {
+          const item = document.createElement("li");
+          item.textContent = action;
+          actions.appendChild(item);
+        });
+        container.appendChild(actions);
+      }
     }
 
     function fillAdminSelect(select, items, selectedId, emptyText) {
@@ -2124,6 +2262,13 @@
       jsonp(GAS_URL + "?" + params.toString())
         .then(data => {
           setMessage(data.message || "");
+          if (data.assignmentStartChecklist) {
+            renderAssignmentStartChecklist(
+              document.getElementById("adminAssignmentStartPanel"),
+              data.assignmentStartChecklist,
+              true
+            );
+          }
           return loadAdminDashboard(true);
         })
         .catch(error => setMessage("処理に失敗しました：" + error.message));
