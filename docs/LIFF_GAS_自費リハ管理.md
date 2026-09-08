@@ -55,6 +55,9 @@
 - 2026-09-08、GitHub認証をmacOS Keychainへ保存。`reha1` 用tokenは `hirogari-toroku/reha1.git` に紐づけて保存済み。通常の `reha1` pushでは毎回token入力しない。
 - 2026-09-08、管理者LIFFに表示されていた `テスト利用者` のスタッフ紐づけ7件を解除し、`LIFF表示用マスタ` を更新済み。解除後の管理者ダッシュボードで残り0件を確認。
 - 2026-09-08、旧練習用関数 `addTestUserForAllStaff` は、Script Properties `ENABLE_TEST_USER_SEEDING=true` が明示設定されている場合だけ動くようにガードした。
+- 2026-09-08、`f7972a8 Disable production test user seeding` をpush。GitHub Actions `Deploy GAS` は `invalid_grant / invalid_rapt` により失敗したため、`contact@reha-hirogari.com` でローカル `clasp login --no-localhost` を再実行した。
+- 2026-09-08、再認証後にローカル `clasp push --force` と `clasp deploy` を実行し、本番Webアプリを `@154` へ更新。`getAdminDashboard` で `テスト利用者` 紐づけ0件を再確認済み。
+- GitHub Actionsの自動GASデプロイを復旧するには、GitHub Secret `CLASPRC_JSON` の更新が必要。保存済みGitHub tokenではActions Secret更新権限が不足していたため、自動更新は未実施。
 
 ## スタッフフォルダ方針
 
@@ -115,8 +118,9 @@
 - 登録済みスタッフ・紐づき済み利用者だけに表示。
 - 未登録・未紐づけの人には表示しない。
 - 本番GAS Webアプリは `@151` にデプロイ済み。
+- テスト利用者再追加防止ガードは、本番GAS Webアプリ `@154` にデプロイ済み。
 - GitHub Pages用 `index.html` もpush済み。
-- 2026-09-07に `contact@reha-hirogari.com` でclasp再認証済み。GitHub Actions用の `CLASPRC_JSON` も更新済みで、`Deploy GAS` 成功確認済み。
+- 2026-09-07に `contact@reha-hirogari.com` でclasp再認証し、GitHub Actions用の `CLASPRC_JSON` も更新して `Deploy GAS` 成功確認済み。ただし2026-09-08の最新pushでは再び `invalid_grant / invalid_rapt` になったため、最新本番反映はローカル `clasp` から実施した。
 - コミット:
   - `8e85f29 Add assignment start readiness panel`
   - `fa31753 Add staff bank guide action`
@@ -141,6 +145,7 @@
 - `clasp push` と本番デプロイは成功済み。
 - `main` に `gas/**` の変更をpushすると、GitHub ActionsからGAS本番デプロイまで自動で進む。
 - GitHub push の認証はmacOS Keychainへ保存済み。token期限切れやrepo権限不足のときだけ、`hirogari-toroku/reha1` 用tokenをGitHub画面でコピーして保存し直す。
+- GitHub Actionsで `invalid_grant / invalid_rapt` が出た場合は、`contact@reha-hirogari.com` で `clasp login --no-localhost` を再実行し、ローカルから手動デプロイする。pushだけで自動デプロイを復旧するには、GitHub Secret `CLASPRC_JSON` を新しい `.clasprc.json` で更新する。
 - 利用者登録フォーム自動処理トリガーは、2026-09-06にWebアプリ管理者actionから設定済み。
 - `テスト利用者` は給与計算除外の保険としてコード上は残すが、通常運用の `スタッフ利用者マスタ` には残さない。旧練習用関数 `addTestUserForAllStaff` を使う場合は、Script Properties `ENABLE_TEST_USER_SEEDING=true` を一時的に設定した場合に限る。
 
