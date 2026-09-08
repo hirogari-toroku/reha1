@@ -6664,6 +6664,12 @@ function runCouponAll() {
  * 練習用のテスト利用者を、担当利用者がいないスタッフと内田宗一郎に追加する
  */
 function addTestUserForAllStaff() {
+  const enabled = String(PropertiesService.getScriptProperties().getProperty("ENABLE_TEST_USER_SEEDING") || "").trim();
+  if (enabled !== "true") {
+    SpreadsheetApp.getUi().alert("テスト利用者の自動追加は現在無効です。必要な場合のみ、Script Propertiesで ENABLE_TEST_USER_SEEDING=true を設定してから実行してください。");
+    return;
+  }
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
   const staffUserSheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
