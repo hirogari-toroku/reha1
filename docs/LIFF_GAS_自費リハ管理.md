@@ -52,6 +52,7 @@
 - 2026-09-07、管理者LIFFの担当開始準備パネルを実装し、`reha1` commit `8e85f29 Add assignment start readiness panel` をpush。GitHub Actions `Deploy GAS` 成功確認済み。
 - 2026-09-08、管理者LIFFの担当開始準備パネルからスタッフへ銀行登録フォーム案内をLINE送信するボタンを実装し、`reha1` commit `fa31753 Add staff bank guide action` をpush。GitHub Actions `Deploy GAS` 成功確認済み。
 - 2026-09-08、本番Webアプリで `adminSendStaffBankRegistrationGuide` action が動いていることを確認。疎通確認は `staffId` なしで行ったため、LINE送信は行っていない。
+- 2026-09-08、GitHub認証をmacOS Keychainへ保存。`reha1` 用tokenは `hirogari-toroku/reha1.git` に紐づけて保存済み。通常の `reha1` pushでは毎回token入力しない。
 
 ## スタッフフォルダ方針
 
@@ -137,6 +138,7 @@
 - `clasp run updateLiffDisplayMaster -p '[true]'` はこの環境では `NOT_FOUND` または権限エラーで失敗することがあるため、メニューまたは管理者LIFF/Webアプリ経由が安全。
 - `clasp push` と本番デプロイは成功済み。
 - `main` に `gas/**` の変更をpushすると、GitHub ActionsからGAS本番デプロイまで自動で進む。
+- GitHub push の認証はmacOS Keychainへ保存済み。token期限切れやrepo権限不足のときだけ、`hirogari-toroku/reha1` 用tokenをGitHub画面でコピーして保存し直す。
 - 利用者登録フォーム自動処理トリガーは、2026-09-06にWebアプリ管理者actionから設定済み。
 
 ## LIFFモード
