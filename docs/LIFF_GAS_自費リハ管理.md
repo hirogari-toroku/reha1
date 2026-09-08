@@ -59,6 +59,7 @@
 - 2026-09-08、再認証後にローカル `clasp push --force` と `clasp deploy` を実行し、本番Webアプリを `@154` へ更新。`getAdminDashboard` で `テスト利用者` 紐づけ0件を再確認済み。
 - 2026-09-08、GitHub画面で `CLASPRC_JSON` を更新し、失敗していたGitHub Actions `Deploy GAS` run #58を再実行。再実行後は `completed success` になり、pushだけでGAS自動デプロイする経路は復旧済み。
 - 保存済みGitHub tokenではActions Secret更新権限が不足していたため、`CLASPRC_JSON` はGitHub画面から手動更新した。
+- 2026-09-08、共同経営者へ共有する短い進捗報告を `docs/共同経営者向け報告_2026-09-08.md` に整理した。実装状況を外部説明するときは、詳細な内部IDよりも、管理者LIFF改善、テスト利用者整理、GAS/GitHub自動デプロイ復旧、次の実装候補を中心に伝える。
 
 ## スタッフフォルダ方針
 
