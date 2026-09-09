@@ -5934,6 +5934,7 @@ function importGmoNyushukkinFromPasteCore_(ss) {
   const importedCount = importGmoRows_(ss, values);
   const removedDuplicateCount = dedupeNyushukkinRows_(ss);
   const reconciledCount = reconcileNyushukkinUsersCore_(ss);
+  const baselineRollup = rollCouponBaselinesAfterConfirmedPayments_(ss);
   updateCouponManagement();
   const couponReport = buildCouponUpdateReport_(ss);
 
@@ -5942,14 +5943,202 @@ function importGmoNyushukkinFromPasteCore_(ss) {
     importedCount: importedCount,
     removedDuplicateCount: removedDuplicateCount,
     reconciledCount: reconciledCount,
+    baselineRollupCount: baselineRollup.updatedCount,
+    baselineRollupItems: baselineRollup.items,
     couponReport: couponReport,
     message:
       "GMO入出金CSVを取り込み、回数券管理を更新しました。\n" +
       "新規取込：" + importedCount + "件\n" +
       "重複整理：" + removedDuplicateCount + "件\n" +
-      "照合更新：" + reconciledCount + "件" +
+      "照合更新：" + reconciledCount + "件\n" +
+      "回数券基準更新：" + baselineRollup.updatedCount + "件" +
       formatCouponUpdateReportMessage_(couponReport)
   };
+}
+
+/**
+ * 照合済み入金がある利用者は、最新入金日を新しい基準日にする。
+ * 基準残数は、最新入金日当日までの入金・利用を反映した確認済み残数。
+ */
+function rollCouponBaselinesAfterConfirmedPayments_(ss) {
+  const baselineSheet = ensureCouponBaselineSheet_(ss);
+  const userSheet = ss.getSheetByName("利用者マスタ");
+  const nyushukkinSheet = ss.getSheetByName("入出金明細");
+  const visitSheet = ss.getSheetByName(VISIT_RESULT_SHEET_NAME);
+
+  if (!userSheet || !nyushukkinSheet || !visitSheet) {
+    return { updatedCount: 0, items: [] };
+  }
+
+  const users = getCouponUsers_(userSheet);
+  const baselineMap = getCouponBaselineMap_(ss);
+  const paymentEventMap = getCouponPaymentEventsByUser_(nyushukkinSheet);
+  const usageEventMap = getCouponUsageEventsByUser_(visitSheet);
+  const baselineRowMap = getCouponBaselineRowMap_(baselineSheet);
+  const rowsToAppend = [];
+  const items = [];
+
+  users.forEach(user => {
+    const userKey = normalizeName_(user.userName);
+    const payments = paymentEventMap[userKey] || [];
+    if (!payments.length) return;
+
+    const baseline = baselineMap[userKey] || {
+      baselineDate: "",
+      baselineBalance: 0,
+      memo: ""
+    };
+    const baselineDate = parseDateForCoupon_(baseline.baselineDate);
+    const latestPayment = getLatestCouponPaymentAfterBaseline_(payments, baselineDate);
+    if (!latestPayment) return;
+
+    const latestDate = latestPayment.date;
+    const unitPrice = user.unitPrice || DEFAULT_REHAB_UNIT_PRICE;
+    const oldBalance = Number(baseline.baselineBalance) || 0;
+    const paidAmount = payments
+      .filter(payment => isCouponEventAfterBaselineThroughDate_(payment.date, baselineDate, latestDate))
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const usedCount = (usageEventMap[userKey] || [])
+      .filter(usage => isCouponEventAfterBaselineThroughDate_(usage.date, baselineDate, latestDate))
+      .length;
+    const paidCount = Math.floor(paidAmount / unitPrice);
+    const newBalance = oldBalance + paidCount - usedCount;
+    const latestDayAmount = payments
+      .filter(payment => isSameCouponDate_(payment.date, latestDate))
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const baselineDateText = formatCouponDateText_(latestDate);
+    const memo =
+      formatCouponShortDateText_(latestDate) + "入金" +
+      formatYenAmountText_(latestDayAmount) +
+      "を反映。入金日時点で残数" + newBalance + "回として、以降の利用から管理";
+
+    const row = baselineRowMap[userKey];
+    const rowValues = [user.userName, baselineDateText, newBalance, memo];
+    if (row) {
+      baselineSheet.getRange(row, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      rowsToAppend.push(rowValues);
+    }
+
+    items.push({
+      userName: user.userName,
+      baselineDate: baselineDateText,
+      baselineBalance: newBalance,
+      latestPaymentAmount: latestDayAmount
+    });
+  });
+
+  if (rowsToAppend.length) {
+    baselineSheet
+      .getRange(baselineSheet.getLastRow() + 1, 1, rowsToAppend.length, rowsToAppend[0].length)
+      .setValues(rowsToAppend);
+  }
+
+  return {
+    updatedCount: items.length,
+    items: items
+  };
+}
+
+function getCouponBaselineRowMap_(sheet) {
+  const values = sheet.getDataRange().getValues();
+  const map = {};
+
+  for (let i = 1; i < values.length; i++) {
+    const userName = String(values[i][0] || "").trim();
+    if (!userName) continue;
+    map[normalizeName_(userName)] = i + 1;
+  }
+
+  return map;
+}
+
+function getCouponPaymentEventsByUser_(nyushukkinSheet) {
+  const values = nyushukkinSheet.getDataRange().getValues();
+  const map = {};
+
+  for (let i = 1; i < values.length; i++) {
+    const tradeDate = values[i][0];
+    const inAmount = Number(values[i][2]) || 0;
+    const userName = String(values[i][6] || "").trim();
+    const status = String(values[i][7] || "").trim();
+    const date = parseDateForCoupon_(tradeDate);
+
+    if (!date || !isOnOrAfterCouponStart_(date)) continue;
+    if (!userName || inAmount <= 0 || status !== "照合済") continue;
+
+    const userKey = normalizeName_(userName);
+    if (!map[userKey]) map[userKey] = [];
+    map[userKey].push({
+      date: date,
+      amount: inAmount
+    });
+  }
+
+  return map;
+}
+
+function getCouponUsageEventsByUser_(visitSheet) {
+  const values = visitSheet.getDataRange().getValues();
+  const map = {};
+  const seenVisitKeys = {};
+
+  for (let i = 1; i < values.length; i++) {
+    const visitDate = values[i][0];
+    const type = values[i][1];
+    const userName = String(values[i][3] || "").trim();
+    const date = parseDateForCoupon_(visitDate);
+
+    if (!date || !isOnOrAfterCouponStart_(date)) continue;
+    if (type !== "終了") continue;
+    if (!userName || isAmbiguousUserName_(userName) || userName === "不明") continue;
+
+    const userKey = normalizeName_(userName);
+    const visitKey = userKey + "|" + getCouponDateKey_(date);
+    if (seenVisitKeys[visitKey]) continue;
+    seenVisitKeys[visitKey] = true;
+
+    if (!map[userKey]) map[userKey] = [];
+    map[userKey].push({ date: date });
+  }
+
+  return map;
+}
+
+function getLatestCouponPaymentAfterBaseline_(payments, baselineDate) {
+  let latest = null;
+
+  payments.forEach(payment => {
+    if (baselineDate && payment.date.getTime() <= baselineDate.getTime()) return;
+    if (!latest || payment.date.getTime() > latest.date.getTime()) latest = payment;
+  });
+
+  return latest;
+}
+
+function isCouponEventAfterBaselineThroughDate_(eventDate, baselineDate, throughDate) {
+  if (!eventDate || !throughDate) return false;
+  if (baselineDate && eventDate.getTime() <= baselineDate.getTime()) return false;
+  return eventDate.getTime() <= throughDate.getTime();
+}
+
+function isSameCouponDate_(a, b) {
+  if (!a || !b) return false;
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+function formatCouponDateText_(date) {
+  return Utilities.formatDate(date, "Asia/Tokyo", "yyyy/MM/dd");
+}
+
+function formatCouponShortDateText_(date) {
+  return Utilities.formatDate(date, "Asia/Tokyo", "M/d");
+}
+
+function formatYenAmountText_(amount) {
+  return String(Number(amount) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "円";
 }
 
 function importGmoRows_(ss, rows) {
