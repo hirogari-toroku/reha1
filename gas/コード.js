@@ -8375,7 +8375,6 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
   }
 
   const directorySheet = ensureLineUserDirectorySheet_(ss);
-  updateLineUserDirectoryLinksWithoutAlert_(ss, directorySheet);
 
   const rows = directorySheet.getLastRow() < 2
     ? []
@@ -8480,6 +8479,7 @@ function getAdminRelationshipData_(ss) {
   const staffUserSheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
   const staffMap = getAdminStaffMap_(ss);
   const userMap = getAdminUserMap_(ss);
+  const checklistContext = buildAssignmentStartChecklistContext_(ss);
   const relationships = [];
   const issues = [];
   const linkedUserKeys = {};
@@ -8536,7 +8536,7 @@ function getAdminRelationshipData_(ss) {
       userLiffLinked: !!user.liffLineUserId,
       userMessagingLinked: !!user.messagingLineUserId,
       issueText: relationIssues.join("、"),
-      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user)
+      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user, checklistContext)
     };
 
     relationships.push(relationship);
@@ -8942,14 +8942,61 @@ function saveStaffUserRelationship_(ss, rowNumber, staffId, userId) {
   };
 }
 
-function buildAssignmentStartChecklist_(ss, staff, user) {
+function buildAssignmentStartChecklistContext_(ss) {
+  return {
+    importantInfo: getImportantInfoLinks_(ss),
+    scheduleStatusByKey: buildAssignmentScheduleStatusIndex_(ss)
+  };
+}
+
+function buildAssignmentScheduleStatusIndex_(ss) {
+  const map = {};
+  const sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return map;
+
+  ensureScheduleStatusColumns_(sheet);
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
+
+  values.forEach(row => {
+    const staffName = String(row[1] || "").trim();
+    const userName = String(row[2] || "").trim();
+    const visitDate = row[3];
+    const status = String(row[8] || "予定").trim();
+    if (!staffName || !userName || !visitDate || isCancelledScheduleStatus_(status)) return;
+
+    const key = getAssignmentScheduleStatusKey_(staffName, userName);
+    const item = {
+      date: parseComparisonDate_(visitDate, row[0]),
+      text: formatScheduleDateForLiff_(visitDate, row[0]) + "（" + (status || "予定") + "）"
+    };
+    const current = map[key];
+    if (!current || compareNullableDates_(item.date, current.date) < 0) {
+      map[key] = item;
+    }
+  });
+
+  return map;
+}
+
+function getAssignmentScheduleStatusKey_(staffName, userName) {
+  return normalizeName_(staffName) + "\t" + normalizeName_(userName);
+}
+
+function compareNullableDates_(a, b) {
+  const aTime = a ? a.getTime() : 0;
+  const bTime = b ? b.getTime() : 0;
+  return aTime - bTime;
+}
+
+function buildAssignmentStartChecklist_(ss, staff, user, context) {
   const staffName = staff && staff.name ? staff.name : "";
   const userName = user && user.name ? user.name : "";
-  const scheduleStatus = getAssignmentScheduleStatus_(ss, staffName, userName);
+  const checklistContext = context || buildAssignmentStartChecklistContext_(ss);
+  const scheduleStatus = getAssignmentScheduleStatusFromContext_(checklistContext, staffName, userName);
   const folderShareStatus = String(staff && staff.folderShareStatus || "").trim();
   const bankStatus = String(staff && staff.bankRegistrationStatus || "").trim();
   const userStatus = String(user && user.status || "").trim();
-  const importantInfo = getImportantInfoLinks_(ss);
+  const importantInfo = checklistContext.importantInfo || {};
   const hasImportantInfo = !!(importantInfo.pdfUrl || importantInfo.videoUrl || importantInfo.consentFormUrl);
   const items = [
     {
@@ -9040,6 +9087,23 @@ function buildAssignmentStartChecklist_(ss, staff, user) {
     bankRegistrationGuideDisabledReason: getBankRegistrationGuideDisabledReason_(staff, bankStatus),
     items: items,
     nextActions: buildAssignmentStartNextActions_(items)
+  };
+}
+
+function getAssignmentScheduleStatusFromContext_(context, staffName, userName) {
+  if (!staffName || !userName) {
+    return {
+      exists: false,
+      text: ""
+    };
+  }
+
+  const item = context && context.scheduleStatusByKey
+    ? context.scheduleStatusByKey[getAssignmentScheduleStatusKey_(staffName, userName)]
+    : null;
+  return {
+    exists: !!item,
+    text: item ? item.text : ""
   };
 }
 

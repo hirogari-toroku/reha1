@@ -1121,15 +1121,16 @@
     let importantInfo = {};
     let userResourceMap = {};
 
-    function jsonp(url) {
+    function jsonp(url, timeoutMs) {
       return new Promise((resolve, reject) => {
         const callbackName = "jsonp_cb_" + jsonpCounter++;
         const script = document.createElement("script");
+        const timeout = timeoutMs || 20000;
         const timer = setTimeout(() => {
           delete window[callbackName];
           script.remove();
           reject(new Error("通信がタイムアウトしました。LIFF操作ログを確認してください。"));
-        }, 20000);
+        }, timeout);
 
         window[callbackName] = data => {
           clearTimeout(timer);
@@ -1763,7 +1764,7 @@
 
       if (!silent) setMessage("管理情報を読み込み中...");
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      return jsonp(GAS_URL + "?" + params.toString(), 45000)
         .then(data => {
           renderAdminDashboard(data);
           if (!silent) setMessage(data.message || "");
