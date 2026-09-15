@@ -78,6 +78,26 @@ function frontend() {
     resolve: value => resolve(value), reject: error => reject(error) };
 }
 
+test('important-info panel is hidden for staff but retained on dedicated and user pages', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const start = html.indexOf('function renderImportantInfoLinks()');
+  const end = html.indexOf('function getUserResourceForItem', start);
+  for (const mode of ['staff', 'user', 'important', 'admin']) {
+    let hidden = false;
+    const children = [];
+    const area = { innerHTML: '', appendChild: item => children.push(item) };
+    const panel = { classList: { add: () => { hidden = true; }, remove: () => { hidden = false; } } };
+    const c = vm.createContext({ appMode: mode,
+      importantInfo: { consentFormUrl: 'https://example.com/consent' },
+      document: { getElementById: id => id === 'importantInfoPanel' ? panel : area },
+      isValidResourceUrl: url => Boolean(url), makeResourceLink: label => label });
+    vm.runInContext(html.slice(start, end), c);
+    c.renderImportantInfoLinks();
+    assert.equal(hidden, mode === 'staff' || mode === 'admin');
+    assert.equal(children.length, hidden ? 0 : 1);
+  }
+});
+
 test('concurrent schedule refreshes share one request and can refresh after completion', async () => {
   const f = frontend();
   const first = f.c.loadSchedules();
