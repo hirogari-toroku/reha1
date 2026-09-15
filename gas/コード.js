@@ -1611,8 +1611,7 @@ function getSchedulesForLiff_(lineUserId) {
     };
   }
 
-  ensureScheduleStatusColumns_(scheduleSheet);
-  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), staffName);
   const schedules = collectActiveSchedulesForStaff_(scheduleSheet, staffName, visitStatusIndex);
   enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
@@ -2128,7 +2127,7 @@ function appendUnplannedVisitResults_(schedules, visitStatusIndex, plannedVisitK
 function enrichLiffScheduleItemsWithUserResources_(ss, schedules) {
   if (!schedules || schedules.length === 0) return schedules;
 
-  const userResourceMap = getUserResourceMap_(ss);
+  const userResourceMap = getUserResourceMap_(ss, true);
   const couponDisplayMap = getCouponDisplayMap_(ss);
   schedules.forEach(item => {
     const resources = userResourceMap[normalizeName_(item.userName)] || {};
@@ -2249,13 +2248,15 @@ function isCancelledScheduleStatus_(status) {
   return /キャンセル|取消|中止/.test(String(status || "").trim());
 }
 
-function buildVisitStatusIndex_(sheet) {
+function buildVisitStatusIndex_(sheet, targetStaffName) {
   const index = {};
   if (!sheet || sheet.getLastRow() < 2) return index;
 
+  const targetStaff = targetStaffName ? normalizeName_(targetStaffName) : "";
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 8)).getValues();
 
   values.forEach(row => {
+    if (targetStaff && normalizeName_(row[2]) !== targetStaff) return;
     const registeredAt = row[0];
     const visitType = String(row[1] || "").trim();
     const staffName = String(row[2] || "").trim();
@@ -7214,11 +7215,11 @@ function buildDriveFolderUrlFromId_(folderIdOrUrl) {
   return "https://drive.google.com/drive/folders/" + encodeURIComponent(value);
 }
 
-function getUserResourceMap_(ss) {
+function getUserResourceMap_(ss, readOnly) {
   const sheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
   if (!sheet || sheet.getLastRow() < 2) return {};
 
-  ensureUserMasterBaseColumns_(sheet);
+  if (!readOnly) ensureUserMasterBaseColumns_(sheet);
 
   const headerMap = getHeaderColumnMap_(sheet);
   const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);

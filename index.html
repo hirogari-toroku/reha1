@@ -1554,18 +1554,20 @@
       card.appendChild(area);
     }
 
+    let scheduleLoadPromise = null;
+
     function loadSchedules(silent) {
       if (!lineUserId) return Promise.resolve();
+      if (scheduleLoadPromise) return scheduleLoadPromise;
 
       const params = new URLSearchParams({
         action: "getSchedules",
         lineUserId: lineUserId
       });
 
-      document.getElementById("scheduleList").innerHTML = "";
       if (!silent) setMessage("予定を読み込み中...");
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      scheduleLoadPromise = jsonp(GAS_URL + "?" + params.toString(), 45000)
         .then(data => {
           if (!data.success) {
             scheduleItems = [];
@@ -1581,11 +1583,11 @@
           if (!silent) setMessage(scheduleItems.length ? "" : "対象期間内の予定はありません。");
         })
         .catch(error => {
-          scheduleItems = [];
-          setResourceData({});
-          renderScheduleList();
-          if (!silent) setMessage("予定の取得に失敗しました：" + error.message);
-        });
+          setMessage("予定の更新に失敗しました：" + error.message +
+            (scheduleItems.length ? "\n表示中の予定は更新前の情報です。" : ""));
+        })
+        .finally(() => { scheduleLoadPromise = null; });
+      return scheduleLoadPromise;
     }
 
     function loadUserSchedules(silent) {
