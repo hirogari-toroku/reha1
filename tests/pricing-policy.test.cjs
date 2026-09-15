@@ -98,3 +98,24 @@ test('setup endpoint requires existing admin authorization', () => {
   c.setupPricingPolicyColumnsCore_ = () => { throw new Error('must not run'); };
   assert.equal(c.adminSetupPricingPolicy_('outsider').denied, true);
 });
+
+test('September raise preserves August and does not schedule a November raise', () => {
+  const c = context();
+  const rows = [['スタッフ名', '利用者名', '適用開始月', '給与単価'],
+    ['S', 'U', '2026-09', 3500], ['S', 'U', '1900-01', 2500]];
+  const history = c.getPayrollUnitPayHistory_({ getSheetByName: () => sheet(rows) });
+  for (const month of ['2026-05', '2026-08']) assert.equal(c.payrollUnitPayForMonth_(history, 'S_U', month, 3500), 2500);
+  for (const month of ['2026-09', '2026-10', '2026-11', '2027-09']) assert.equal(c.payrollUnitPayForMonth_(history, 'S_U', month, 4500), 3500);
+  assert.equal(c.payrollUnitPayForMonth_(history, 'Other_U', '2026-11', 3000), 3000);
+});
+test('history errors do not silently fall back to current pay', () => {
+  const c = context();
+  const headers = ['スタッフ名', '利用者名', '適用開始月', '給与単価'];
+  for (const rows of [
+    [['S', 'U', '2026-13', 3500]],
+    [['S', 'U', '2026-09', 3500], ['S', 'U', '2026-09', 4000]],
+    [['S', 'U', '2026-09', -100]],
+    [['S', '', '2026-09', 3500]]
+  ]) assert.throws(() => c.getPayrollUnitPayHistory_({ getSheetByName: () => sheet([headers, ...rows]) }));
+  assert.throws(() => c.payrollUnitPayForMonth_({ S_U: [{ month: '2026-09', unitPay: 3500 }] }, 'S_U', '2026-08', 3500));
+});

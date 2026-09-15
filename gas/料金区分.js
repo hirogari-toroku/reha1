@@ -1,5 +1,5 @@
 // Blank policies preserve pre-existing contracts. Newly imported records require review.
-const PRICING_POLICY_VERSION = "2026-09-15-v1";
+const PRICING_POLICY_VERSION = "2026-09-15-v2";
 const USER_PRICING_HEADER = "利用料金区分";
 const STAFF_PRICING_HEADER = "報酬区分";
 const TRAVEL_PRICING_HEADER = "交通費区分";
@@ -107,4 +107,48 @@ function adminSetupPricingPolicy_(lineUserId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return setupPricingPolicyColumnsCore_(ss);
+}
+
+function payrollHistoryMonth_(value) {
+  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, "Asia/Tokyo", "yyyy-MM");
+  }
+  const text = String(value || "").trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(text)) throw new Error("給与単価履歴の適用開始月はYYYY-MMで入力してください。");
+  return text;
+}
+
+function getPayrollUnitPayHistory_(ss) {
+  const sheet = ss.getSheetByName("給与単価履歴");
+  const history = {};
+  if (!sheet) return history;
+  const rows = sheet.getDataRange().getValues();
+  const headers = rows[0];
+  const cols = ["スタッフ名", "利用者名", "適用開始月", "給与単価"].map(name => headers.indexOf(name));
+  if (cols.some(col => col < 0)) throw new Error("給与単価履歴の見出しを確認してください。");
+  rows.slice(1).forEach((row, index) => {
+    if (cols.every(col => row[col] === "" || row[col] == null)) return;
+    const staffName = normalizeName_(row[cols[0]]);
+    const userName = normalizeName_(row[cols[1]]);
+    const month = payrollHistoryMonth_(row[cols[2]]);
+    const unitPay = Number(row[cols[3]]);
+    if (!staffName || !userName || !Number.isFinite(unitPay) || unitPay <= 0) {
+      throw new Error("給与単価履歴の" + (index + 2) + "行目を確認してください。");
+    }
+    const key = staffName + "_" + userName;
+    const entries = history[key] || (history[key] = []);
+    if (entries.some(entry => entry.month === month)) throw new Error("給与単価履歴の適用開始月が重複しています。");
+    entries.push({ month, unitPay });
+  });
+  Object.keys(history).forEach(key => history[key].sort((a, b) => a.month.localeCompare(b.month)));
+  return history;
+}
+
+function payrollUnitPayForMonth_(history, key, month, fallback) {
+  const entries = history[key];
+  if (!entries || !entries.length) return fallback;
+  const targetMonth = payrollHistoryMonth_(month);
+  const applicable = entries.filter(entry => entry.month <= targetMonth);
+  if (!applicable.length) throw new Error("対象月より前の給与単価履歴がありません。過去分の単価を確認してください。");
+  return applicable[applicable.length - 1].unitPay;
 }

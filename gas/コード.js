@@ -3470,6 +3470,7 @@ function createPayrollSummary() {
   const payrollSheet = ss.getSheetByName("給与集計");
 
   const masterMap = getStaffUserMasterMap_(ss);
+  const unitPayHistory = getPayrollUnitPayHistory_(ss);
   const allowanceMap = getPayrollAllowanceMap_(ss);
   const staffFormalNameMap = getStaffFormalNameMap_(ss);
   const values = visitSheet.getDataRange().getValues();
@@ -3546,7 +3547,7 @@ function createPayrollSummary() {
     if (master.pricingError) throw new Error(staffName + " / " + userName + ": " + master.pricingError);
 
     summary[key].count += 1;
-    summary[key].basePay += master.unitPay;
+    summary[key].basePay += payrollUnitPayForMonth_(unitPayHistory, masterKey, ym, master.unitPay);
     summary[key].travelCost += master.travelCost;
   }
 
