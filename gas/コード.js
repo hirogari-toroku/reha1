@@ -328,6 +328,10 @@ function doGet(e) {
     return liffResponse_(e, adminSetupPricingPolicy_(e.parameter.lineUserId));
   }
 
+  if (action === "adminSetupAnnualRaise") {
+    return liffResponse_(e, adminSetupAnnualRaise_(e.parameter.lineUserId));
+  }
+
   if (action === "getUsers") {
     return liffResponse_(e, getLiffUserList_(e.parameter.lineUserId));
   }
@@ -3471,6 +3475,7 @@ function createPayrollSummary() {
 
   const masterMap = getStaffUserMasterMap_(ss);
   const unitPayHistory = getPayrollUnitPayHistory_(ss);
+  const annualRaisePolicies = getAnnualRaisePolicies_(ss);
   const allowanceMap = getPayrollAllowanceMap_(ss);
   const staffFormalNameMap = getStaffFormalNameMap_(ss);
   const values = visitSheet.getDataRange().getValues();
@@ -3547,7 +3552,8 @@ function createPayrollSummary() {
     if (master.pricingError) throw new Error(staffName + " / " + userName + ": " + master.pricingError);
 
     summary[key].count += 1;
-    summary[key].basePay += payrollUnitPayForMonth_(unitPayHistory, masterKey, ym, master.unitPay);
+    const historicalPay = payrollUnitPayForMonth_(unitPayHistory, masterKey, ym, master.unitPay);
+    summary[key].basePay += annualRaiseUnitPay_(annualRaisePolicies, masterKey, ym, historicalPay);
     summary[key].travelCost += master.travelCost;
   }
 
@@ -10880,6 +10886,7 @@ function onOpen() {
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
     .addItem("📘 重要事項説明マスタを整える", "setupImportantInfoMasterSheet")
     .addItem("料金・報酬区分の列を整える", "setupPricingPolicyColumns")
+    .addItem("担当継続1年の昇給設定を作成", "setupAnnualRaiseSheet")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
     .addItem("💰 給与集計だけ更新", "runPayrollSummaryOnly")

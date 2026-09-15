@@ -1,5 +1,5 @@
 // Blank policies preserve pre-existing contracts. Newly imported records require review.
-const PRICING_POLICY_VERSION = "2026-09-15-v2";
+const PRICING_POLICY_VERSION = "2026-09-15-v3";
 const USER_PRICING_HEADER = "利用料金区分";
 const STAFF_PRICING_HEADER = "報酬区分";
 const TRAVEL_PRICING_HEADER = "交通費区分";

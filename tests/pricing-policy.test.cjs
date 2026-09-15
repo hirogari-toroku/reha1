@@ -6,7 +6,7 @@ const path = require('node:path');
 
 function context() {
   const ctx = vm.createContext({ console });
-  for (const name of ['コード.js', '料金区分.js']) {
+  for (const name of ['コード.js', '料金区分.js', '担当継続昇給.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../gas', name), 'utf8'), ctx);
   }
   return ctx;
@@ -118,4 +118,73 @@ test('history errors do not silently fall back to current pay', () => {
     [['S', '', '2026-09', 3500]]
   ]) assert.throws(() => c.getPayrollUnitPayHistory_({ getSheetByName: () => sheet([headers, ...rows]) }));
   assert.throws(() => c.payrollUnitPayForMonth_({ S_U: [{ month: '2026-09', unitPay: 3500 }] }, 'S_U', '2026-08', 3500));
+});
+
+function annualRows(entries) {
+  return [['スタッフ名', '利用者名', '担当開始日', '給与区分', '本人紹介', '運用開始月', '有効'], ...entries];
+}
+test('anniversary month begins following month, including December and leap dates', () => {
+  const c = context();
+  for (const [date, expected] of [['2026-09-15', '2027-10'], ['2026-09-01', '2027-10'], ['2026-12-31', '2028-01'], ['2024-02-29', '2025-03']]) {
+    assert.equal(c.annualRaiseMonth_(date), expected);
+  }
+  for (const date of ['', '2026-02-29', '2026-13-01']) assert.throws(() => c.annualRaiseMonth_(date));
+});
+test('annual raises are per assignment, not per staff', () => {
+  const c = context();
+  const policies = c.getAnnualRaisePolicies_({getSheetByName: () => sheet(annualRows([
+    ['S', 'A', '2026-09-15', '運営スタッフ', 'いいえ', '2026-11', true],
+    ['S', 'B', '2027-03-01', '運営スタッフ', 'いいえ', '2027-03', true]
+  ]))});
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2027-09', 3500), 3500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2027-10', 3500), 4000);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_B', '2027-10', 3500), 3500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_B', '2028-04', 3500), 4000);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2030-10', 4000), 4000);
+});
+test('referrals are unchanged for both categories', () => {
+  const c = context();
+  const policies = c.getAnnualRaisePolicies_({getSheetByName: () => sheet(annualRows([
+    ['S', 'A', '2020-09-15', '運営スタッフ', 'はい', '2026-11', true],
+    ['N', 'B', '2020-09-15', '他スタッフ', 'はい', '2026-11', true]
+  ]))});
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2030-11', 4500), 4500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'N_B', '2030-11', 4000), 4000);
+});
+test('manual scheme gate and historical legacy pay are preserved', () => {
+  const c = context();
+  const policies = c.getAnnualRaisePolicies_({getSheetByName: () => sheet(annualRows([
+    ['S', 'A', '2020-09-15', '運営スタッフ', 'いいえ', '2026-11', true],
+    ['N', 'B', '2020-09-15', '他スタッフ', 'いいえ', '2026-11', true]
+  ]))});
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2026-08', 2500), 2500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2026-10', 3500), 3500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'N_B', '2026-11', 3000), 3500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'N_B', '2026-11', 4500), 4500);
+  assert.throws(() => c.annualRaiseUnitPay_(policies, 'S_A', '2026-11', 2500));
+});
+test('unregistered and disabled pairs stay unchanged', () => {
+  const c = context();
+  const policies = c.getAnnualRaisePolicies_({getSheetByName: () => sheet(annualRows([
+    ['S', 'A', '', '', '', '', false], ['S', 'B']
+  ]))});
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_A', '2030-11', 2500), 2500);
+  assert.equal(c.annualRaiseUnitPay_(policies, 'S_B', '2030-11', 3500), 3500);
+});
+test('invalid active configuration fails instead of guessing', () => {
+  const c = context();
+  const good = ['S', 'A', '2026-09-15', '運営スタッフ', 'いいえ', '2026-11', true];
+  for (const [index, value] of [[0, ''], [2, ''], [3, '不明'], [4, ''], [5, ''], [6, 'yes']]) {
+    const bad = good.slice(); bad[index] = value;
+    assert.throws(() => c.getAnnualRaisePolicies_({getSheetByName: () => sheet(annualRows([bad]))}));
+  }
+  assert.throws(() => c.getAnnualRaisePolicies_({getSheetByName: () => sheet(annualRows([good, good]))}));
+});
+test('annual setup requires admin and does not touch existing settings', () => {
+  const c = context();
+  c.SpreadsheetApp = { getActiveSpreadsheet: () => ({}) };
+  c.isAdminLiffUser_ = () => false;
+  c.adminDeniedResponse_ = () => ({denied: true});
+  assert.equal(c.adminSetupAnnualRaise_('outsider').denied, true);
+  assert.equal(c.setupAnnualRaiseSheetCore_({getSheetByName: () => ({})}).success, true);
 });
