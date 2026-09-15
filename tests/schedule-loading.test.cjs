@@ -37,7 +37,7 @@ test('schedule enrichment preserves resources and coupon without maintenance', (
   const items = [{ userName: 'U' }];
   c.enrichLiffScheduleItemsWithUserResources_({}, items);
   assert.equal(items[0].chartUrl, 'chart');
-  assert.equal(items[0].basicInfoUrl, 'info');
+  assert.equal(items[0].basicInfoUrl, undefined);
   assert.equal(items[0].coupon.balance, 3);
 });
 
@@ -77,6 +77,22 @@ function frontend() {
   return { c, calls: () => calls, message: () => message,
     resolve: value => resolve(value), reject: error => reject(error) };
 }
+
+test('staff resources expose one folder and old user JSON retains the chart', () => {
+  const c = backend();
+  c.getStaffMasterColumnMap_ = () => ({ name: 0, payrollFolderId: 1 });
+  const sheet = { getLastRow: () => 2, getLastColumn: () => 2,
+    getRange: () => ({ getValues: () => [['S', 'folder-id']] }) };
+  const resource = c.getStaffResourceMap_(sheet).S;
+  assert.equal(resource.staffFolderUrl, 'https://drive.google.com/drive/folders/folder-id');
+  assert.equal(resource.payslipFolderUrl, undefined);
+  const users = c.parseLiffUserLinksJson_(JSON.stringify([{ name: 'U', chartUrl: 'https://example.com/chart', basicInfoUrl: '' }]), '');
+  assert.equal(users[0].chartUrl, 'https://example.com/chart');
+  assert.equal(users[0].basicInfoUrl, undefined);
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.ok(html.includes('makeResourceLink("カルテ", resources.chartUrl, true)'));
+  assert.ok(!html.includes('appendUserResourceLinks'));
+});
 
 test('important-info panel is hidden for staff but retained on dedicated and user pages', () => {
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');

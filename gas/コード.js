@@ -1004,8 +1004,8 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
     const data = {
       staffName: staffName,
       staffResources: {
-        staffFolderUrl: staffFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][staffFolderUrlCol]) : "",
-        payslipFolderUrl: payslipFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][payslipFolderUrlCol]) : ""
+        staffFolderUrl: (staffFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][staffFolderUrlCol]) : "") ||
+          (payslipFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][payslipFolderUrlCol]) : "")
       },
       importantInfo: getImportantInfoLinks_(ss),
       users: users
@@ -2133,7 +2133,6 @@ function enrichLiffScheduleItemsWithUserResources_(ss, schedules) {
     const resources = userResourceMap[normalizeName_(item.userName)] || {};
     const coupon = couponDisplayMap[normalizeName_(item.userName)] || null;
     item.chartUrl = resources.chartUrl || "";
-    item.basicInfoUrl = resources.basicInfoUrl || "";
     if (coupon) item.coupon = coupon;
   });
 
@@ -7006,7 +7005,6 @@ function updateLiffDisplayMaster(suppressAlert) {
       staffName,
       displayUsers.map(user => user.name).join("\n"),
       staffResources.staffFolderUrl || "",
-      staffResources.payslipFolderUrl || "",
       JSON.stringify(displayUsers),
       now
     ]);
@@ -7028,7 +7026,6 @@ function updateLiffDisplayMaster(suppressAlert) {
     "スタッフ名",
     "利用者一覧",
     LIFF_STAFF_FOLDER_LINK_HEADER,
-    LIFF_PAYSLIP_FOLDER_LINK_HEADER,
     "利用者リンクJSON",
     "更新日時"
   ];
@@ -7050,9 +7047,8 @@ function updateLiffDisplayMaster(suppressAlert) {
   sheet.setColumnWidth(2, 140);
   sheet.setColumnWidth(3, 280);
   sheet.setColumnWidth(4, 260);
-  sheet.setColumnWidth(5, 260);
-  sheet.setColumnWidth(6, 360);
-  sheet.setColumnWidth(7, 150);
+  sheet.setColumnWidth(5, 360);
+  sheet.setColumnWidth(6, 150);
   saveLiffDisplayMasterProperties_(initDataMap);
 
   if (!suppressAlert) {
@@ -7175,8 +7171,7 @@ function buildLiffUsersByStaffMap_(ss, staffUserSheet) {
     map[staffKey].push({
       name: userResources.name || userName,
       chartUrl: relationChartUrl || userResources.chartUrl || "",
-      userFolderUrl: userResources.userFolderUrl || "",
-      basicInfoUrl: userResources.basicInfoUrl || ""
+      userFolderUrl: userResources.userFolderUrl || ""
     });
   }
 
@@ -7200,8 +7195,7 @@ function getStaffResourceMap_(staffSheet) {
 
     const folderUrl = buildDriveFolderUrlFromId_(cols.payrollFolderId >= 0 ? row[cols.payrollFolderId] : "");
     map[normalizeName_(staffName)] = {
-      staffFolderUrl: folderUrl,
-      payslipFolderUrl: folderUrl
+      staffFolderUrl: folderUrl
     };
   });
 
@@ -7330,8 +7324,7 @@ function parseLiffUserLinksJson_(value, fallbackText) {
             return {
               name: String(item && item.name || "").trim(),
               chartUrl: normalizeResourceUrl_(item && item.chartUrl),
-              userFolderUrl: normalizeResourceUrl_(item && item.userFolderUrl),
-              basicInfoUrl: normalizeResourceUrl_(item && item.basicInfoUrl)
+              userFolderUrl: normalizeResourceUrl_(item && item.userFolderUrl)
             };
           })
           .filter(item => item.name);
