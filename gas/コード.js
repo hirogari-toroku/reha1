@@ -319,8 +319,13 @@ function doGet(e) {
     return liffResponse_(e, {
       success: true,
       message: "Unified GAS LIFF API OK",
+      pricingPolicyVersion: PRICING_POLICY_VERSION,
       time: new Date()
     });
+  }
+
+  if (action === "adminSetupPricingPolicy") {
+    return liffResponse_(e, adminSetupPricingPolicy_(e.parameter.lineUserId));
   }
 
   if (action === "getUsers") {
@@ -3538,6 +3543,8 @@ function createPayrollSummary() {
       continue;
     }
 
+    if (master.pricingError) throw new Error(staffName + " / " + userName + ": " + master.pricingError);
+
     summary[key].count += 1;
     summary[key].basePay += master.unitPay;
     summary[key].travelCost += master.travelCost;
@@ -3649,6 +3656,8 @@ function getStaffUserMasterMap_(ss) {
   if (!sheet) return map;
 
   const values = sheet.getDataRange().getValues();
+  const travelPolicyCol = pricingColumn_(values[0], TRAVEL_PRICING_HEADER);
+  const staffPolicies = pricingStaffMap_(ss);
 
   for (let i = 1; i < values.length; i++) {
     const staffName = values[i][0];
@@ -3657,13 +3666,26 @@ function getStaffUserMasterMap_(ss) {
 
     const manualTravelCost = Number(values[i][4]) || 0;
     const oneWayDistanceKm = Number(values[i][5]) || 0;
-    const travelCost = calculatePayrollTravelCost_(oneWayDistanceKm, manualTravelCost);
+    let travelCost = 0;
+    let pricingError = "";
+    try {
+      travelCost = pricingTravel_(values[i][travelPolicyCol], values[i][5], manualTravelCost).payroll;
+      const staffPolicy = staffPolicies[normalizeName_(staffName)] || LEGACY_PRICING;
+      if (staffPolicy === PENDING_PRICING) throw new Error("スタッフの報酬区分を確認してください。");
+      if ((staffPolicy === NEW_PRICING || pricingPolicy_(values[i][travelPolicyCol]) === NEW_PRICING) &&
+          (!Number.isFinite(unitPay) || unitPay <= 0)) {
+        throw new Error("契約済みの給与単価を入力してください。新規の基本報酬は自動設定しません。");
+      }
+    } catch (error) {
+      pricingError = error.message;
+    }
 
     if (!staffName || !userName) continue;
 
     map[normalizeName_(staffName) + "_" + normalizeName_(userName)] = {
       unitPay: unitPay || 0,
-      travelCost: travelCost || 0
+      travelCost: travelCost || 0,
+      pricingError
     };
   }
 
@@ -3715,6 +3737,7 @@ function updateDistanceAndTravelCosts() {
   const staffValues = staffSheet.getDataRange().getValues();
   const userValues = userSheet.getDataRange().getValues();
   const staffUserValues = staffUserSheet.getDataRange().getValues();
+  const pricingTravelCol = pricingColumn_(staffUserValues[0], TRAVEL_PRICING_HEADER);
   const staffCols = getStaffMasterColumnMap_(staffSheet);
 
   const staffAddressMap = {};
@@ -3744,6 +3767,11 @@ function updateDistanceAndTravelCosts() {
   for (let i = 1; i < staffUserValues.length; i++) {
     const staffName = staffUserValues[i][0];
     const userName = staffUserValues[i][1];
+
+    if (pricingPolicy_(staffUserValues[i][pricingTravelCol]) !== NEW_PRICING) {
+      skippedCount++;
+      continue;
+    }
 
     const existingDistance = Number(staffUserValues[i][5]) || 0;
     if (existingDistance > 0) {
@@ -3802,21 +3830,23 @@ function updateTravelCostsInStaffUserMaster() {
     return;
   }
 
-  sheet.getRange(1, 7).setValue("利用者請求交通費");
-  sheet.getRange(1, 8).setValue("交通費備考");
-
+  const policyCol = pricingColumn_(values[0], TRAVEL_PRICING_HEADER);
   const output = [];
 
   for (let i = 1; i < values.length; i++) {
     const oneWayDistanceKm = Number(values[i][5]) || 0;
     const fallbackTravelCost = Number(values[i][4]) || 0;
 
-    const payrollTravelCost = calculatePayrollTravelCost_(oneWayDistanceKm, fallbackTravelCost);
-    const directTravelCost = calculateDirectTravelCostForUser_(oneWayDistanceKm);
+    const policy = pricingPolicy_(values[i][policyCol]);
+    const travel = pricingTravel_(policy, values[i][5], fallbackTravelCost);
+    const payrollTravelCost = travel.payroll;
+    const directTravelCost = travel.direct;
 
     let memo = "";
 
-    if (!oneWayDistanceKm) {
+    if (policy === NEW_PRICING) {
+      memo = "新料金：片道km×20円を支給・利用者追加請求なし";
+    } else if (!oneWayDistanceKm) {
       memo = "距離未入力のためE列を使用";
     } else if (oneWayDistanceKm < 10) {
       memo = "給与交通費に反映";
@@ -3832,7 +3862,12 @@ function updateTravelCostsInStaffUserMaster() {
     ]);
   }
 
-  sheet.getRange(2, 5, output.length, 4).setValues(output);
+  // Legacy rows, including manual exceptions, must not be rewritten by this update.
+  output.forEach((row, index) => {
+    if (pricingPolicy_(values[index + 1][policyCol]) === NEW_PRICING) {
+      sheet.getRange(index + 2, 5, 1, 4).setValues([row]);
+    }
+  });
 }
 
 /**
@@ -5973,6 +6008,7 @@ function rollCouponBaselinesAfterConfirmedPayments_(ss) {
   const users = getCouponUsers_(userSheet);
   const baselineMap = getCouponBaselineMap_(ss);
   const paymentEventMap = getCouponPaymentEventsByUser_(nyushukkinSheet);
+  validateNewCouponPayments_(users, paymentEventMap);
   const usageEventMap = getCouponUsageEventsByUser_(visitSheet);
   const baselineRowMap = getCouponBaselineRowMap_(baselineSheet);
   const rowsToAppend = [];
@@ -6391,6 +6427,7 @@ function updateCouponManagement() {
   const existingMemoMap = getExistingCouponMemoMap_(couponSheet);
   const users = getCouponUsers_(userSheet);
   const baselineMap = getCouponBaselineMap_(ss);
+  validateNewCouponPayments_(users, getCouponPaymentEventsByUser_(nyushukkinSheet));
   const paymentMap = getUserPaymentMap_(nyushukkinSheet, baselineMap);
   const usageMap = getUserUsageMap_(visitSheet, baselineMap);
   const currentMonthKey = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM");
@@ -6426,6 +6463,9 @@ function updateCouponManagement() {
     const lastPaymentDate = paymentMap[userName]?.lastDate || "";
     const lastPaymentAmount = paymentMap[userName]?.lastAmount || "";
     const usedCount = usageMap[userName]?.total || 0;
+    if (user.pricingPolicy === PENDING_PRICING && usedCount > 0) {
+      throw new Error(userName + "の利用料金区分を確認してください。未払い額を旧単価で仮計算しません。");
+    }
 
     const paidCount = Math.floor(paidAmount / unitPrice);
     const couponBalance = (Number(baseline.baselineBalance) || 0) + paidCount - usedCount;
@@ -6618,6 +6658,7 @@ function formatCouponUpdateReportMessage_(report) {
 
 function getCouponUsers_(userSheet) {
   const values = userSheet.getDataRange().getValues();
+  const policyCol = pricingColumn_(values[0], USER_PRICING_HEADER);
   const users = [];
   const seen = {};
 
@@ -6626,9 +6667,11 @@ function getCouponUsers_(userSheet) {
     if (!userName || seen[userName]) continue;
 
     seen[userName] = true;
+    const policy = pricingPolicy_(values[i][policyCol]);
     users.push({
       userName,
-      unitPrice: Number(values[i][4]) || DEFAULT_REHAB_UNIT_PRICE // E列：回数券単価
+      pricingPolicy: policy,
+      unitPrice: policy === NEW_PRICING ? 9250 : Number(values[i][4]) || DEFAULT_REHAB_UNIT_PRICE
     });
   }
 
@@ -7917,6 +7960,7 @@ function importUserQuestionnaireToUserMasterCore_(ss) {
     const headerMap = getHeaderColumnMap_(userSheet);
 
     setRowValueByHeaders_(row, headerMap, ["利用者名", "氏名", "名前"], userName, 0);
+    setRowValueByHeaders_(row, headerMap, [USER_PRICING_HEADER], PENDING_PRICING, -1);
     setRowValueByHeaders_(row, headerMap, ["住所", "ご住所"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["住所", "ご住所"], 2), -1);
     setRowValueByHeaders_(row, headerMap, ["電話番号", "電話", "連絡先"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["電話番号", "電話", "連絡先"], 3), -1);
     setRowValueByHeaders_(row, headerMap, ["病名もしくは症状", "病名・症状", "症状"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["病名もしくは症状", "病名・症状", "症状"], 4), -1);
@@ -7974,6 +8018,7 @@ function ensureUserMasterBaseColumns_(sheet) {
   ensureHeaderColumn_(sheet, USER_CHART_URL_HEADER);
   ensureHeaderColumn_(sheet, USER_FOLDER_URL_HEADER);
   ensureHeaderColumn_(sheet, USER_BASIC_INFO_URL_HEADER);
+  ensureHeaderColumn_(sheet, USER_PRICING_HEADER);
 }
 
 function syncReferralData() {
@@ -8886,6 +8931,7 @@ function saveStaffUserRelationship_(ss, rowNumber, staffId, userId) {
   const staffIdCol = ensureHeaderColumn_(sheet, STAFF_ID_HEADER);
   const userIdCol = ensureHeaderColumn_(sheet, USER_ID_HEADER);
   const headerMap = getHeaderColumnMap_(sheet);
+  const travelPolicyCol = ensureHeaderColumn_(sheet, TRAVEL_PRICING_HEADER);
   const staffNameCol = getColumnIndex_(headerMap, ["スタッフ名", "氏名"], 0);
   const userNameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 1);
   const lineLabelCol = getColumnIndex_(headerMap, ["LINE表記", "LINE表示名", "LINE名"], 2);
@@ -8918,6 +8964,13 @@ function saveStaffUserRelationship_(ss, rowNumber, staffId, userId) {
   }
 
   const maxColumn = Math.max(sheet.getLastColumn(), userIdCol + 1, staffIdCol + 1, 8);
+  const isNewRelationship = targetRow > sheet.getLastRow();
+  if (!isNewRelationship) {
+    const oldRow = values[targetRow - 2];
+    if (String(oldRow[staffIdCol] || "") !== staff.id || String(oldRow[userIdCol] || "") !== user.id) {
+      return { success: false, message: "既存の紐づけを別のスタッフ・利用者に上書きできません。料金条件を守るため、新しい紐づけとして追加してください。" };
+    }
+  }
   if (targetRow > sheet.getLastRow()) {
     sheet.getRange(targetRow, 1, 1, maxColumn).setValues([new Array(maxColumn).fill("")]);
   }
@@ -8929,6 +8982,14 @@ function saveStaffUserRelationship_(ss, rowNumber, staffId, userId) {
   }
   sheet.getRange(targetRow, staffIdCol + 1).setValue(staff.id);
   sheet.getRange(targetRow, userIdCol + 1).setValue(user.id);
+  if (isNewRelationship) {
+    const userPolicy = pricingUserMap_(ss)[normalizeName_(user.name)] || LEGACY_PRICING;
+    const staffPolicy = pricingStaffMap_(ss)[normalizeName_(staff.name)] || LEGACY_PRICING;
+    // Old user/new staff combinations require explicit travel-contract review.
+    const travelPolicy = userPolicy === NEW_PRICING ? NEW_PRICING :
+      (userPolicy === LEGACY_PRICING && staffPolicy === LEGACY_PRICING ? LEGACY_PRICING : PENDING_PRICING);
+    sheet.getRange(targetRow, travelPolicyCol + 1).setValue(travelPolicy);
+  }
 
   setupMasterIdColumnsCore_(ss);
   updateLiffDisplayMaster(true);
@@ -9417,6 +9478,7 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
 
   ensureStaffMasterHeaders_(staffSheet);
   ensureStaffMasterProfileColumns_(staffSheet);
+  const staffPricingCol = ensureHeaderColumn_(staffSheet, STAFF_PRICING_HEADER);
 
   const sourceValues = sourceSheet.getDataRange().getValues();
   const sourceHeaderMap = getHeaderColumnMap_(sourceSheet);
@@ -9456,6 +9518,7 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
     }
 
     const row = createBlankStaffMasterRow_(staffSheet);
+    row[staffPricingCol] = PENDING_PRICING;
 
     row[staffCols.name] = staffName;
     setStaffQuestionnaireValuesToRow_(row, staffHeaderMap, sourceRow, sourceHeaderMap);
@@ -10815,6 +10878,7 @@ function onOpen() {
     .addItem("📝 利用者アンケートを利用者マスタへ取込", "importUserQuestionnaireToUserMaster")
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
     .addItem("📘 重要事項説明マスタを整える", "setupImportantInfoMasterSheet")
+    .addItem("料金・報酬区分の列を整える", "setupPricingPolicyColumns")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
     .addItem("💰 給与集計だけ更新", "runPayrollSummaryOnly")
