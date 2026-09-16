@@ -1868,7 +1868,7 @@
           chips.className = "admin-chip-row";
           chips.appendChild(createAdminChip(item.userStatus || "状態未設定", item.userStatus ? "ok" : "warn"));
           chips.appendChild(createAdminChip(item.userLiffLinked ? "利用者LIFF紐づけ済" : "利用者LIFF未紐づけ", item.userLiffLinked ? "ok" : "danger"));
-          chips.appendChild(createAdminChip(item.userMessagingLinked ? "利用者LINE IDあり" : "利用者LINE ID未取得", item.userMessagingLinked ? "ok" : "warn"));
+          chips.appendChild(createAdminChip(item.userMessagingLinked ? "利用者LINE連携確認済" : "利用者LINE連携未確認", item.userMessagingLinked ? "ok" : "warn"));
           if (item.issueText) chips.appendChild(createAdminChip(item.issueText, "danger"));
           row.appendChild(chips);
 
@@ -1877,9 +1877,16 @@
             meta.className = "schedule-card-meta";
             meta.textContent =
               "スタッフLINE名：" + (item.staffLineDisplayName || "-") +
-              " / 利用者LINE名：" + (item.userLineDisplayName || "-");
+              (item.userViewers && item.userViewers.length ? "" : " / 旧LINE表記：" + (item.userLineDisplayName || "-"));
             row.appendChild(meta);
           }
+
+          (item.userViewers || []).forEach(viewer => {
+            const meta = document.createElement("div");
+            meta.className = "schedule-card-meta";
+            meta.textContent = "閲覧者：" + viewer.name + " / 続柄：" + viewer.relation + " / " + viewer.state;
+            row.appendChild(meta);
+          });
 
           if (item.assignmentStartChecklist) {
             const checklistPanel = document.createElement("div");

@@ -8613,7 +8613,7 @@ function getAdminRelationshipData_(ss) {
     if (!userName) relationIssues.push("利用者名なし");
     if (!staff.id) relationIssues.push("スタッフID未設定");
     if (!user.id) relationIssues.push("利用者ID未設定");
-    if (!user.liffLineUserId && !user.messagingLineUserId) relationIssues.push("利用者LINE未紐づけ");
+    if (!user.userLiffLinked) relationIssues.push("利用者LINE未紐づけ");
 
     const relationship = {
       rowNumber: index + 2,
@@ -8623,9 +8623,10 @@ function getAdminRelationshipData_(ss) {
       userName: userName,
       userId: user.id || userId || "",
       userLineDisplayName: user.lineDisplayName || lineLabel || "",
+      userViewers: user.userViewers || [],
       userStatus: user.status || "",
-      userLiffLinked: !!user.liffLineUserId,
-      userMessagingLinked: !!user.messagingLineUserId,
+      userLiffLinked: !!user.userLiffLinked,
+      userMessagingLinked: !!user.userMessagingLinked,
       issueText: relationIssues.join("、"),
       assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user, checklistContext)
     };
@@ -8698,6 +8699,7 @@ function getAdminUserMap_(ss) {
   const sheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
   const map = { byName: {}, byId: {}, list: [] };
   if (!sheet || sheet.getLastRow() < 2) return map;
+  const linkSummaries = getAdminUserLinkSummary_(ss);
 
   const headerMap = getHeaderColumnMap_(sheet);
   const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
@@ -8724,6 +8726,10 @@ function getAdminUserMap_(ss) {
       preferredTime: preferredTimeCol >= 0 ? String(row[preferredTimeCol] || "").trim() : ""
     };
 
+    const links = linkSummaries[id];
+    item.userLiffLinked = !!(links && links.liffLinked && isActiveUserStatus_(item.status));
+    item.userMessagingLinked = !!(links && links.messagingLinked);
+    item.userViewers = links ? links.viewers : [];
     if (name) map.byName[normalizeName_(name)] = item;
     if (id) map.byId[id] = item;
     if (name) map.list.push(item);
@@ -9123,12 +9129,10 @@ function buildAssignmentStartChecklist_(ss, staff, user, context) {
     {
       key: "userLine",
       label: "利用者LINE",
-      status: user && (user.liffLineUserId || user.messagingLineUserId) ? "ok" : "warn",
-      message: user && user.liffLineUserId
-        ? "利用者のLIFF用LINEユーザーIDがあります。"
-        : user && user.messagingLineUserId
-        ? "利用者のMessaging API LINEユーザーIDがあります。"
-        : "利用者LINEが未紐づけです。手動管理またはLINE情報反映を確認してください。"
+      status: user && user.userLiffLinked ? "ok" : "warn",
+      message: user && user.userLiffLinked
+        ? "本人・家族のLINE連携を確認済みです。"
+        : "利用者LINE連携の本人・家族確認と連携状態を確認してください。"
     },
     {
       key: "userStatus",
