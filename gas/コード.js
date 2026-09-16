@@ -194,6 +194,10 @@ function doPost(e) {
         return;
       }
 
+      if (isRecentDuplicateVisit_(resultSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt)) {
+        replyMessages.push({ replyToken, userId, staffName, message: "同じ実績が登録済みのため、追加登録しませんでした。" });
+        return;
+      }
       visitRows.forEach(row => resultSheet.appendRow(row));
 
       if (
@@ -218,12 +222,18 @@ function doPost(e) {
           message:
             firstRow[1] === "開始"
               ? "よろしくお願いします。" + NL +
-                "利用者：" + firstRow[3] + " 様"
+                "利用者：" + firstRow[3]
               : "お疲れ様でした。" + NL +
-                "利用者：" + firstRow[3] + " 様の実績を登録しました。" + couponUpdate.warning
+                "利用者：" + firstRow[3] + " の実績を登録しました。" + couponUpdate.warning
         });
       }
 
+      return;
+    }
+
+    if (/開始|終了/.test(text) && !isScheduleLikeMessage_(text)) {
+      replyMessages.push({ replyToken, userId, staffName,
+        message: "実績として登録していません。登録済みの担当利用者のフルネームと半角スペースに続けて、開始または終了だけを1通で送ってください。\n例：山田太郎 開始\n様・さん、苗字のみ、名前なし、文章を付けた報告は登録しません。" });
       return;
     }
 
@@ -2981,57 +2991,29 @@ function convertDateTextToDate_(dateText) {
  * 訪問実績（LINEテキスト）の解析
  */
 function parseVisitResult_(ss, text, receivedAt, staffName, userId) {
-  const rows = [];
-
-  // 「7月訪問予定」などの予定連絡を、訪問開始の実績として誤判定しない
-  if (isScheduleLikeMessage_(text)) return rows;
-
-  const compact = text.replace(/\s/g, "");
-
-  let type = "";
-  let userName = "";
-
+  const input = String(text || "").trim();
+  if (/[\r\n]/.test(input)) return [];
+  const match = input.match(/^(.+?)[ \t\u3000]+(開始|終了)$/);
+  if (!match) return [];
+  // Unlike normalizeName_, exact command matching must not strip honorifics or punctuation.
+  const exactName = value => String(value || "").replace(/[ \t\u3000]/g, "");
+  const target = exactName(match[1]);
+  const sheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
+  if (!sheet) return [];
+  const candidates = sheet.getDataRange().getValues().slice(1).filter(row =>
+    exactName(row[0]) === exactName(staffName) && exactName(row[1]) === target);
+  if (candidates.length !== 1) return [];
+  const userName = String(candidates[0][1]).trim();
+  if (!isTestUserName_(userName)) {
+    const master = ss.getSheetByName(USER_MASTER_SHEET_NAME);
+    if (!master) return [];
+    const names = master.getDataRange().getValues().slice(1).filter(row => exactName(row[0]) === target);
+    if (names.length !== 1) return [];
+  }
+  const type = match[2];
   const targetDate = Utilities.formatDate(receivedAt, "Asia/Tokyo", "M/d");
   const targetTime = Utilities.formatDate(receivedAt, "Asia/Tokyo", "H:mm");
-
-  if (/終了|終わり|完了|終えました|終わりました/.test(compact)) {
-    type = "終了";
-  } else if (/開始|始めます|入ります|入りました|介入|訪問します|訪問しました|訪問開始|リハ開始|リハビリ開始/.test(compact)) {
-    type = "開始";
-  }
-
-  if (!type) return rows;
-
-  userName = extractUserNameFromText_(compact);
-
-  // 「終了」連絡で名前が省略されている場合、直前の「開始」ユーザーを特定する
-  if (!userName && type === "終了") {
-    userName = findLastStartedUser_(ss, userId);
-  }
-
-  if (userName) {
-    userName = resolveUserName_(ss, staffName, userName);
-  }
-
-  if (!userName) {
-    userName = "不明";
-  }
-
-  // マスタ未登録または不明の場合は専用シートに記録
-  if (
-    userName === "不明" ||
-    !isRegisteredStaffUser_(ss, staffName, userName)
-  ) {
-    saveUnknownUser_(
-      ss,
-      receivedAt,
-      staffName,
-      userName,
-      text
-    );
-  }
-
-  rows.push([
+  return [[
     receivedAt,
     type,
     staffName,
@@ -3040,9 +3022,7 @@ function parseVisitResult_(ss, text, receivedAt, staffName, userId) {
     targetTime,
     text,
     userId
-  ]);
-
-  return rows;
+  ]];
 }
 
 function isScheduleLikeMessage_(text) {
