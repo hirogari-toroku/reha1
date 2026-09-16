@@ -2170,8 +2170,8 @@
           : (item.visitDate || "") + "　" + (item.userName || "");
         if (data.targetType === "staff") {
           appendTitleChartLink(name, item);
-          appendCouponBadge(name, item);
         }
+        appendCouponBadge(name, item);
 
         const status = document.createElement("span");
         status.className = "status-pill";
@@ -2467,6 +2467,7 @@
 
         const date = document.createElement("span");
         date.textContent = item.visitDate;
+        appendCouponBadge(date, { coupon: userCoupon });
 
         const status = document.createElement("span");
         status.className = "status-pill";

@@ -28,7 +28,7 @@ const assert = require('node:assert/strict');
       });
       await page.goto('https://hirogari-toroku.github.io/reha1/');
       if (role==='user') {
-        await page.getByText('残数 3',{exact:true}).waitFor();
+        await page.locator('.schedule-card-title .coupon-pill').getByText('残数 3',{exact:true}).waitFor();
         assert.match(await page.locator('#staff').innerText(),/テスト利用者/);
         await page.getByText('開始 18:00 / 終了 19:00',{exact:true}).waitFor();
         await page.locator('#scheduleReload').click();
