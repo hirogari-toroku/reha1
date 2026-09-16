@@ -1100,7 +1100,7 @@
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
     const STAFF_REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfTjEQpVCXOUO5igr02E5yn_QnbuIUY9KoXvb2_VyxjCcxmYA/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
-    const appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" || requestedMode === "qr" || requestedMode === "important" ? requestedMode : "staff";
+    let appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" || requestedMode === "qr" || requestedMode === "important" ? requestedMode : "staff";
 
     let lineUserId = "";
     let lineDisplayName = "";
@@ -1578,19 +1578,9 @@
     let userLinkLoadPromise = null;
     let userCoupon = null;
 
-    function rememberUserInvite() {
-      if (appMode !== "user") return;
-      const invite = new URLSearchParams(window.location.hash.slice(1)).get("link");
-      if (invite && /^[0-9a-f]{64}$/.test(invite)) {
-        sessionStorage.setItem("hirogariUserInvite", invite);
-        history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
-    }
-
     function loadUserSchedules(silent) {
       if (!lineUserId) return Promise.resolve();
       if (userLinkLoadPromise) return userLinkLoadPromise;
-      const inviteToken = sessionStorage.getItem("hirogariUserInvite") || "";
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 45000);
 
@@ -1600,10 +1590,9 @@
       userLinkLoadPromise = fetch(GAS_URL, {
         method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
         credentials: "omit", referrerPolicy: "no-referrer", signal: controller.signal,
-        body: JSON.stringify({ action: "userLinkSchedules", accessToken: liff.getAccessToken(), inviteToken: inviteToken })
+        body: JSON.stringify({ action: "userLinkSchedules", accessToken: liff.getAccessToken() })
       }).then(response => { if (!response.ok) throw new Error("通信に失敗しました。"); return response.json(); })
         .then(data => {
-          if (data.success && inviteToken) sessionStorage.removeItem("hirogariUserInvite");
           scheduleItems = data.schedules || [];
           userCoupon = data.success ? data.coupon || null : null;
           setResourceData(data && data.success ? data : {});
@@ -1611,7 +1600,7 @@
             document.getElementById("staff").innerText = "利用者：" + data.userName + " 様";
           } else {
             document.getElementById("staff").innerText =
-              "利用者情報を確認できませんでした。";
+              (data.pending ? "登録確認待ち" : "利用者情報を確認できませんでした。");
           }
           renderUserScheduleList();
           setMessage(data.message || "");
@@ -2504,7 +2493,7 @@
           card.appendChild(updated);
         }
 
-        if (isUnplannedVisit && item.lastVisitText) {
+        if (item.lastVisitText) {
           const visit = document.createElement("div");
           visit.className = "schedule-card-meta";
           visit.textContent = item.lastVisitText;
@@ -2686,12 +2675,19 @@
 
     function initApp(displayName) {
       const params = new URLSearchParams({
-        action: "init",
+        action: "commonInit",
         lineUserId: lineUserId,
         displayName: displayName || ""
       });
 
-      return applyUserListData(jsonp(GAS_URL + "?" + params.toString()))
+      return jsonp(GAS_URL + "?" + params.toString()).then(data => {
+        if (data.role === "userOrPending") {
+          appMode = "user";
+          setupUserModeView();
+          return loadUserSchedules();
+        }
+        return applyUserListData(Promise.resolve(data));
+      })
         .catch(error => {
           document.getElementById("staff").innerText =
             "ログイン記録に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
@@ -2824,7 +2820,6 @@
     if (appMode === "important") setupImportantModeView();
 
     if (appMode !== "qr") {
-      rememberUserInvite();
       liff.init({ liffId: LIFF_ID })
         .then(() => {
           if (!liff.isLoggedIn()) {

@@ -334,7 +334,7 @@ function doGet(e) {
       success: true,
       message: "Unified GAS LIFF API OK",
       pricingPolicyVersion: PRICING_POLICY_VERSION,
-      userLinkVersion: "2026-09-16-v1",
+      userLinkVersion: "2026-09-16-v2-common-entry",
       time: new Date()
     });
   }
@@ -356,6 +356,15 @@ function doGet(e) {
       e.parameter.lineUserId,
       e.parameter.displayName
     ));
+  }
+
+  if (action === "commonInit") {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const id = String(e.parameter.lineUserId || "").trim();
+    if (!getLiffInitDataFromDisplayMaster_(id) && getStaffNameCached_(ss, id) === "未登録") {
+      return liffResponse_(e, { success: false, role: "userOrPending" });
+    }
+    return liffResponse_(e, initLiffApp_(id, e.parameter.displayName));
   }
 
   if (action === "logLogin") {
@@ -10908,7 +10917,7 @@ function onOpen() {
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
-    .addItem("利用者・家族の連携リンクを作成（手動送信用）", "openUserLinkDialog")
+    .addItem("利用者・家族のLINEを確認・紐づけ", "openUserLinkDialog")
     .addItem("📝 利用者アンケートを利用者マスタへ取込", "importUserQuestionnaireToUserMaster")
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
     .addItem("📘 重要事項説明マスタを整える", "setupImportantInfoMasterSheet")
