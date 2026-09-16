@@ -1,6 +1,21 @@
 const USER_LINK_HEADERS = ["利用者ID", "公式LINEユーザーID", "続柄", "本人家族確認", "LIFF用LINEユーザーID", "状態", "招待ハッシュ", "有効期限", "連携日時", "確認者", "送信日時", "利用者名", "閲覧者名", "メモ"];
 const USER_LINK_CHANNEL = "2010856600";
 
+function findConfirmedUserDirectoryMatch_(ss, id) {
+  if (!/^U[0-9a-f]{32}$/.test(String(id || ""))) return null;
+  try {
+    const rows = userLinkSheet_(ss).getDataRange().getValues().slice(1)
+      .filter(row => row[4] === id);
+    if (rows.length !== 1 || rows[0][3] !== "確認済み" || rows[0][5] !== "連携済み") return null;
+    const row = rows[0], user = userLinkMaster_(ss, String(row[0]));
+    return { name: user.name, userId: user.id, lineDisplayName: row[12] || "",
+      liffLineUserId: id, messagingLineUserId: "" };
+  } catch (error) {
+    if (error.userLinkSafe) return null;
+    throw error;
+  }
+}
+
 function userLinkFail_(message) {
   const error = new Error(message);
   error.userLinkSafe = true;

@@ -5090,70 +5090,8 @@ function findUserMasterRowByName_(ss, userName) {
 }
 
 function findUserDirectoryMatchByLineOrName_(ss, lineUserId, displayName) {
-  const sheet = ss.getSheetByName("利用者マスタ");
-  const targetLineUserId = String(lineUserId || "").trim();
-  const targetDisplayName = normalizeName_(displayName);
-
-  if (sheet && sheet.getLastRow() >= 2) {
-    const values = sheet.getDataRange().getValues();
-    const headerMap = getHeaderColumnMap_(sheet);
-    const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
-    const userIdCol = getColumnIndex_(headerMap, [USER_ID_HEADER, "利用者ID"], -1);
-    const lineDisplayNameCol = getColumnIndex_(headerMap, ["LINE表示名", "LINE名"], -1);
-    const messagingLineUserIdCol = getColumnIndex_(headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], -1);
-    const liffLineUserIdCol = getColumnIndex_(headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], -1);
-    const lineMatches = [];
-    const nameMatches = [];
-
-    for (let i = 1; i < values.length; i++) {
-      const userName = String(values[i][nameCol] || "").trim();
-      if (!userName) continue;
-
-      const messagingLineUserId = messagingLineUserIdCol >= 0 ? String(values[i][messagingLineUserIdCol] || "").trim() : "";
-      const liffLineUserId = liffLineUserIdCol >= 0 ? String(values[i][liffLineUserIdCol] || "").trim() : "";
-      const lineDisplayName = lineDisplayNameCol >= 0 ? values[i][lineDisplayNameCol] : "";
-
-      if (
-        targetLineUserId &&
-        (messagingLineUserId === targetLineUserId || liffLineUserId === targetLineUserId)
-      ) {
-        lineMatches.push({
-          name: userName,
-          rowNumber: i + 1,
-          userId: userIdCol >= 0 ? String(values[i][userIdCol] || "").trim() : "",
-          lineDisplayName: lineDisplayName || "",
-          messagingLineUserId: messagingLineUserId || "",
-          liffLineUserId: liffLineUserId || ""
-        });
-        continue;
-      }
-
-      if (
-        targetDisplayName &&
-        (
-          normalizeName_(userName) === targetDisplayName ||
-          normalizeName_(lineDisplayName) === targetDisplayName
-        )
-      ) {
-        nameMatches.push({
-          name: userName,
-          rowNumber: i + 1,
-          userId: userIdCol >= 0 ? String(values[i][userIdCol] || "").trim() : "",
-          lineDisplayName: lineDisplayName || "",
-          messagingLineUserId: messagingLineUserId || "",
-          liffLineUserId: liffLineUserId || ""
-        });
-      }
-    }
-
-    const uniqueLineMatches = dedupeDirectoryMatches_(lineMatches);
-    if (uniqueLineMatches.length === 1) return uniqueLineMatches[0];
-
-    const uniqueNameMatches = dedupeDirectoryMatches_(nameMatches);
-    if (uniqueNameMatches.length === 1) return uniqueNameMatches[0];
-  }
-
-  return findUserDirectoryMatch_(ss, displayName);
+  // Classification only; private schedule access still requires token verification.
+  return findConfirmedUserDirectoryMatch_(ss, lineUserId);
 }
 
 function collectUserDirectoryMatchesFromUserMaster_(ss, target, matches) {
@@ -7999,13 +7937,7 @@ function importUserQuestionnaireToUserMasterCore_(ss) {
     setRowValueByHeaders_(row, headerMap, ["紹介者"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["紹介者"], 5), -1);
     setRowValueByHeaders_(row, headerMap, ["その他", "備考"], getQuestionnaireValue_(sourceRow, sourceHeaderMap, ["その他", "備考"], 6), -1);
 
-    const lineMatch = findLineUserDirectoryByDisplayName_(ss, userName);
-    if (lineMatch) {
-      setRowValueByHeaders_(row, headerMap, ["LINE表示名"], lineMatch.displayName, -1);
-      setRowValueByHeaders_(row, headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], lineMatch.messagingLineUserId, -1);
-      setRowValueByHeaders_(row, headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], lineMatch.liffLineUserId, -1);
-      lineMatchedCount++;
-    }
+    // Viewer identity is confirmed separately in 利用者LINE連携, never by form name.
 
     rows.push(row);
     existingUsers[userKey] = true;
@@ -8030,7 +7962,7 @@ function importUserQuestionnaireToUserMasterCore_(ss) {
       "利用者アンケートを利用者マスタへ取り込みました。\n" +
       "追加：" + rows.length + "件\n" +
       "既存のためスキップ：" + skipped.length + "件\n" +
-      "LINE情報を同時反映：" + lineMatchedCount + "件\n" +
+      "LINE連携：利用者・家族のLINEを確認・紐づけから設定してください。\n" +
       "利用者ID追加：" + idResult.addedCount + "件"
   };
 }

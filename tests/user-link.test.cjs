@@ -20,6 +20,19 @@ test('confirmed mother links captured IDs without modifying masters or historica
   assert.equal(f.links.rows[1][0],'U002');assert.equal(f.links.rows[1][1],MSG);assert.equal(f.links.rows[1][2],'母');assert.equal(f.links.rows[1][4],LIFF);assert.equal(f.links.rows[1][5],'連携済み');
   assert.equal(f.links.rows[1][6],'old-hash');assert.equal(f.links.rows[1][7],'old-expiry');assert.equal(f.links.rows[1][10],'old-sent');assert.equal(f.links.rows[1][13],'保持するメモ');assert.equal(f.master.writes.length,0);assert.equal(f.c.userLinkResolve_(f.ss,LIFF).id,'U002');
 });
+
+test('legacy login classification follows confirmed links, not display names or old IDs',()=>{
+  const f=fixture();
+  assert.equal(f.c.findUserDirectoryMatchByLineOrName_(f.ss,LIFF,'山田太郎'),null);
+  f.c.userLinkConfirmAccount(f.input);
+  const result=f.c.findUserDirectoryMatchByLineOrName_(f.ss,LIFF,'unrelated display');
+  assert.equal(result.userId,'U002');
+  assert.equal(result.name,'山田太郎');
+  assert.equal(result.messagingLineUserId,'');
+  assert.equal(f.c.findUserDirectoryMatchByLineOrName_(f.ss,OTHER,'山田太郎'),null);
+  f.links.rows[1][5]='無効';
+  assert.equal(f.c.findUserDirectoryMatchByLineOrName_(f.ss,LIFF,'山田太郎'),null);
+});
 test('capture appends only once and never authorizes by display name',()=>{
   const f=fixture();f.c.userLinkCapturePending_(f.ss,{userId:OTHER,displayName:'山田太郎'});const count=f.links.rows.length;
   f.c.userLinkCapturePending_(f.ss,{userId:OTHER,displayName:'山田太郎'});assert.equal(f.links.rows.length,count);assert.equal(f.c.userLinkResolve_(f.ss,OTHER),null);assert.equal(f.links.rows.at(-1)[0],'');assert.equal(f.master.writes.length,0);

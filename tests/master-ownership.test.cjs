@@ -8,6 +8,12 @@ function context() {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8'), c);
   return c;
 }
+test('questionnaire importer does not match LINE identities by form name', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  const importer = source.split('function importUserQuestionnaireToUserMasterCore_(ss) {')[1]
+    .split('function ensureUserMasterBaseColumns_')[0];
+  assert.doesNotMatch(importer, /findLineUserDirectoryByDisplayName_|lineMatch\./);
+});
 test('legacy user LINE writer cannot read or overwrite user master', () => {
   const c = context();
   const sheet = new Proxy({}, {get() { throw Error('legacy master accessed'); }});
