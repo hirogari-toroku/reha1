@@ -78,6 +78,20 @@ function frontend() {
     resolve: value => resolve(value), reject: error => reject(error) };
 }
 
+test('LINE end completes a LIFF-started visit without changing cancelled states', () => {
+  const c = backend();
+  const complete = { hasStart: true, hasEnd: true };
+  assert.equal(c.resolveLiffScheduleStatus_('訪問中', complete), '完了');
+  assert.equal(c.resolveLiffScheduleStatus_('予定', complete), '完了');
+  for (const status of ['キャンセル', '取消', '中止', '完了']) {
+    assert.equal(c.resolveLiffScheduleStatus_(status, complete), status);
+  }
+  assert.equal(c.resolveLiffScheduleStatus_('訪問中', { hasStart: true, hasEnd: false }), '訪問中');
+  assert.equal(c.resolveLiffScheduleStatus_('訪問中', null), '訪問中');
+  assert.equal(c.resolveLiffScheduleStatus_('予定', { hasStart: false, hasEnd: true }), '終了のみ');
+  assert.equal(c.resolveLiffScheduleStatus_('予定', { hasStart: true, hasEnd: false }), '開始のみ');
+});
+
 test('user filter skips other users before expensive visit processing', () => {
   const c = backend(), parsed = [];
   c.parseComparisonDate_ = value => { parsed.push(value); return null; };

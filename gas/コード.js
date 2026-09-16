@@ -2333,9 +2333,10 @@ function buildVisitStatusKey_(visitDate, staffName, userName) {
 
 function resolveLiffScheduleStatus_(scheduleStatus, visitStatus) {
   const status = String(scheduleStatus || "予定").trim();
-  if (isCancelledScheduleStatus_(status) || status === "完了" || status === "訪問中") return status;
+  if (isCancelledScheduleStatus_(status) || status === "完了") return status;
   if (!visitStatus) return status || "予定";
   if (visitStatus.hasStart && visitStatus.hasEnd) return "完了";
+  if (status === "訪問中") return status;
   if (visitStatus.hasStart) return "開始のみ";
   if (visitStatus.hasEnd) return "終了のみ";
   return status || "予定";
