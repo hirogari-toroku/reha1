@@ -92,6 +92,9 @@ function doPost(e) {
     : {};
 
   if (json.action) {
+    if (json.action === "userLinkSchedules") {
+      return liffResponse_({}, userLinkRequest_(json));
+    }
     return doGet({
       parameter: json
     });
@@ -331,6 +334,7 @@ function doGet(e) {
       success: true,
       message: "Unified GAS LIFF API OK",
       pricingPolicyVersion: PRICING_POLICY_VERSION,
+      userLinkVersion: "2026-09-16-v1",
       time: new Date()
     });
   }
@@ -383,10 +387,7 @@ function doGet(e) {
   }
 
   if (action === "getUserSchedules") {
-    return liffResponse_(e, getUserSchedulesForLiff_(
-      e.parameter.lineUserId,
-      e.parameter.displayName
-    ));
+    return liffResponse_(e, { success: false, schedules: [], message: "ページを開き直してLINEログインしてください。" });
   }
 
   if (action === "getImportantInfo") {
@@ -10907,6 +10908,7 @@ function onOpen() {
     .addItem("📅 予定・実績照合を更新", "updateScheduleVisitComparison")
     .addItem("🧑 LINEユーザー一覧を更新", "updateLineUserDirectoryLinks")
     .addItem("🔗 LINEユーザー一覧をマスタへ反映", "applyLineUserDirectoryToMasters")
+    .addItem("利用者・家族の連携リンクを作成（手動送信用）", "openUserLinkDialog")
     .addItem("📝 利用者アンケートを利用者マスタへ取込", "importUserQuestionnaireToUserMaster")
     .addItem("🆔 マスタID列を整える", "setupMasterIdColumns")
     .addItem("📘 重要事項説明マスタを整える", "setupImportantInfoMasterSheet")

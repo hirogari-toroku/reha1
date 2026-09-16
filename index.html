@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     body {
@@ -1574,39 +1575,55 @@
       return scheduleLoadPromise;
     }
 
+    let userLinkLoadPromise = null;
+    let userCoupon = null;
+
+    function rememberUserInvite() {
+      if (appMode !== "user") return;
+      const invite = new URLSearchParams(window.location.hash.slice(1)).get("link");
+      if (invite && /^[0-9a-f]{64}$/.test(invite)) {
+        sessionStorage.setItem("hirogariUserInvite", invite);
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    }
+
     function loadUserSchedules(silent) {
       if (!lineUserId) return Promise.resolve();
-
-      const params = new URLSearchParams({
-        action: "getUserSchedules",
-        lineUserId: lineUserId,
-        displayName: lineDisplayName || ""
-      });
+      if (userLinkLoadPromise) return userLinkLoadPromise;
+      const inviteToken = sessionStorage.getItem("hirogariUserInvite") || "";
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 45000);
 
       document.getElementById("scheduleList").innerHTML = "";
       if (!silent) setMessage("予約を読み込み中...");
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      userLinkLoadPromise = fetch(GAS_URL, {
+        method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        credentials: "omit", referrerPolicy: "no-referrer", signal: controller.signal,
+        body: JSON.stringify({ action: "userLinkSchedules", accessToken: liff.getAccessToken(), inviteToken: inviteToken })
+      }).then(response => { if (!response.ok) throw new Error("通信に失敗しました。"); return response.json(); })
         .then(data => {
+          if (data.success && inviteToken) sessionStorage.removeItem("hirogariUserInvite");
           scheduleItems = data.schedules || [];
+          userCoupon = data.success ? data.coupon || null : null;
           setResourceData(data && data.success ? data : {});
           if (data.userName) {
             document.getElementById("staff").innerText = "利用者：" + data.userName + " 様";
           } else {
             document.getElementById("staff").innerText =
-              "LINE情報を保存しました。\n" +
-              "LINE表示名：" + (lineDisplayName || "未取得") + "\n" +
-              "LIFF用LINEユーザーID：" + (data.liffLineUserId || lineUserId);
+              "利用者情報を確認できませんでした。";
           }
           renderUserScheduleList();
-          if (!silent) setMessage(data.message || "");
+          setMessage(data.message || "");
         })
         .catch(error => {
           scheduleItems = [];
+          userCoupon = null;
           setResourceData({});
           renderUserScheduleList();
           setMessage("予約の取得に失敗しました：" + error.message);
-        });
+        }).finally(() => { clearTimeout(timer); userLinkLoadPromise = null; });
+      return userLinkLoadPromise;
     }
 
     function loadImportantInfo(displayName) {
@@ -2432,6 +2449,13 @@
     function renderUserScheduleList() {
       const area = document.getElementById("scheduleList");
       area.innerHTML = "";
+      if (userCoupon) {
+        const summary = document.createElement("div");
+        summary.className = "schedule-card";
+        summary.textContent = "回数券 ";
+        appendCouponBadge(summary, { coupon: userCoupon });
+        area.appendChild(summary);
+      }
 
       if (scheduleItems.length === 0) {
         const empty = document.createElement("div");
@@ -2800,6 +2824,7 @@
     if (appMode === "important") setupImportantModeView();
 
     if (appMode !== "qr") {
+      rememberUserInvite();
       liff.init({ liffId: LIFF_ID })
         .then(() => {
           if (!liff.isLoggedIn()) {

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><style>
+body{font:14px sans-serif;margin:20px;color:#222}label{display:block;margin:14px 0 6px}select,input,textarea,button{font:inherit;box-sizing:border-box;width:100%;padding:9px}input[type=checkbox]{width:auto}textarea{height:175px}button{margin-top:12px}#message{white-space:pre-wrap;color:#333}
+</style></head><body>
+<label for="user">利用者</label><select id="user"></select>
+<label for="contact">公式LINEの受信者</label><select id="contact"></select>
+<label for="relation">続柄（本人・母・父・夫・妻など）</label><input id="relation" maxlength="30">
+<label><input type="checkbox" id="confirmed">このLINEと利用者本人・家族との関係を確認しました</label>
+<button id="create" disabled>手動送信用の専用リンクを作成</button>
+<p id="message" role="status">読み込み中...</p>
+<textarea id="result" readonly aria-label="手動送信用の文面" hidden></textarea>
+<script>
+const el=id=>document.getElementById(id);
+google.script.run.withSuccessHandler(data=>{
+  for(const u of data.users) el('user').add(new Option(u.name,u.id));
+  for(const c of data.contacts) el('contact').add(new Option(c.name+'：'+c.message,c.id));
+  el('message').textContent=data.contacts.length?'自動送信は行いません。作成後、宛先を確認して文面を手動で送信してください。':'先に利用者・家族から公式LINEへメッセージを送ってもらってください。';
+  el('create').disabled=!data.contacts.length;
+}).withFailureHandler(()=>{el('message').textContent='一覧を取得できませんでした。開き直してください。';}).userLinkDialogOptions();
+el('create').onclick=()=>{
+  if(!el('confirmed').checked||!el('relation').value.trim()){el('message').textContent='続柄の入力と本人・家族の確認が必要です。';return;}
+  if(!confirm('選択した利用者とLINEに間違いありませんか？ 再発行すると古い未使用リンクは無効になります。'))return;
+  el('create').disabled=true;el('result').hidden=true;el('message').textContent='作成中...';
+  google.script.run.withSuccessHandler(data=>{
+    el('result').value=data.message;el('result').hidden=false;el('result').focus();el('result').select();
+    el('message').textContent='宛先：'+data.recipient+'／利用者：'+data.userName+' 様\n未送信です。この文面を本人・ご家族のLINEへ手動で送信してください。';
+    el('create').disabled=false;
+  }).withFailureHandler(error=>{el('message').textContent=error.message;el('create').disabled=false;}).userLinkCreateInvitation({userId:el('user').value,messagingId:el('contact').value,relation:el('relation').value,confirmed:true});
+};
+</script></body></html>
