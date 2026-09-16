@@ -210,6 +210,7 @@ function doPost(e) {
             "入力内容：" + firstRow[3]
         });
       } else {
+        const couponUpdate = refreshCouponAfterVisit_(ss, firstRow[3], firstRow[1]);
         replyMessages.push({
           replyToken,
           userId,
@@ -219,7 +220,7 @@ function doPost(e) {
               ? "よろしくお願いします。" + NL +
                 "利用者：" + firstRow[3] + " 様"
               : "お疲れ様でした。" + NL +
-                "利用者：" + firstRow[3] + " 様の実績を登録しました。"
+                "利用者：" + firstRow[3] + " 様の実績を登録しました。" + couponUpdate.warning
         });
       }
 
@@ -1342,7 +1343,8 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     updateLinkedScheduleVisitStatus_(scheduleSheet, linkedScheduleRow.rowNumber, type, targetDate, targetTime, now);
   }
 
-  const message = "利用者：" + resolvedUserName + " 様の" + type + "実績を登録しました。";
+  const couponUpdate = refreshCouponAfterVisit_(ss, resolvedUserName, type);
+  const message = "利用者：" + resolvedUserName + " 様の" + type + "実績を登録しました。" + couponUpdate.warning;
 
   saveLiffOperationLog_(
     ss,
@@ -6414,7 +6416,34 @@ function reconcileNyushukkinUsersCore_(ss) {
 /**
  * 回数券残数及び未入金額、不足額、直近入金実績の自動集計
  */
-function updateCouponManagement() {
+function refreshCouponAfterVisit_(ss, userName, visitType) {
+  if (visitType !== "終了" || isTestUserName_(userName)) return { warning: "", skipped: true };
+  try {
+    updateCouponManagement(userName);
+    return { warning: "", success: true };
+  } catch (error) {
+    const warning = "\n実績は保存済みですが、回数券残数の更新は未完了です。管理者に更新を依頼してください。";
+    console.error("couponAfterVisit: " + String(error));
+    try {
+      saveLiffOperationLog_(ss, "couponAfterVisit", "", "", userName, visitType, "", "", "更新失敗", String(error));
+    } catch (logError) {
+      console.error("couponAfterVisit log: " + String(logError));
+    }
+    return { warning: warning, success: false };
+  }
+}
+
+function updateCouponManagement(targetUserName) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) throw new Error("回数券更新が処理中です。再更新してください。");
+  try {
+    return updateCouponManagementLocked_(targetUserName);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateCouponManagementLocked_(targetUserName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const couponSheet = ss.getSheetByName(COUPON_SHEET_NAME);
   const userSheet = ss.getSheetByName("利用者マスタ");
@@ -6422,17 +6451,21 @@ function updateCouponManagement() {
   const visitSheet = ss.getSheetByName(VISIT_RESULT_SHEET_NAME);
 
   if (!couponSheet) {
+    if (targetUserName) throw new Error("回数券管理シートがありません。");
     SpreadsheetApp.getUi().alert("回数券管理シートがありません。");
     return;
   }
 
   if (!userSheet || !nyushukkinSheet || !visitSheet) {
+    if (targetUserName) throw new Error("回数券更新に必要なシートがありません。");
     SpreadsheetApp.getUi().alert("利用者マスタ・入出金明細・訪問実績のいずれかがありません。");
     return;
   }
 
   const existingMemoMap = getExistingCouponMemoMap_(couponSheet);
-  const users = getCouponUsers_(userSheet);
+  const users = getCouponUsers_(userSheet).filter(user =>
+    !targetUserName || normalizeName_(user.userName) === normalizeName_(targetUserName));
+  if (targetUserName && users.length !== 1) throw new Error("回数券の対象利用者を一意に特定できません。");
   const baselineMap = getCouponBaselineMap_(ss);
   validateNewCouponPayments_(users, getCouponPaymentEventsByUser_(nyushukkinSheet));
   const paymentMap = getUserPaymentMap_(nyushukkinSheet, baselineMap);
@@ -6505,6 +6538,23 @@ function updateCouponManagement() {
     ]);
   });
 
+  if (targetUserName) {
+    const headers = couponSheet.getRange(1, 1, 1, output[0].length).getValues()[0];
+    if (headers.some((header, index) => header !== output[0][index])) {
+      throw new Error("回数券管理の列構成を管理者が確認してください。");
+    }
+    const lastRow = couponSheet.getLastRow();
+    const names = lastRow > 1 ? couponSheet.getRange(2, 1, lastRow - 1, 1).getValues() : [];
+    const matches = [];
+    names.forEach((row, index) => {
+      if (normalizeName_(row[0]) === normalizeName_(targetUserName)) matches.push(index + 2);
+    });
+    if (matches.length > 1) throw new Error("回数券管理に同じ利用者が複数あります。");
+    couponSheet.getRange(matches[0] || lastRow + 1, 1, 1, output[0].length).setValues([output[1]]);
+    SpreadsheetApp.flush();
+    return;
+  }
+
   couponSheet.clearContents();
   couponSheet.getRange(1, 1, output.length, output[0].length).setValues(output);
   couponSheet.setFrozenRows(1);
@@ -6513,6 +6563,7 @@ function updateCouponManagement() {
     .setFontColor("#ffffff")
     .setFontWeight("bold");
   couponSheet.getRange(1, 1, Math.max(output.length, 1), output[0].length).setWrap(true);
+  SpreadsheetApp.flush();
 }
 
 function getCouponStatus_(couponBalance, monthUsedCount, monthPaidCount, baseline) {

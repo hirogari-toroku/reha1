@@ -2736,10 +2736,10 @@
       renderScheduleList();
       setMessage("登録中...");
 
-      jsonp(GAS_URL + "?" + params.toString())
+      jsonp(GAS_URL + "?" + params.toString(), 45000)
         .then(data => {
           setMessage(data.message);
-          if (scheduleId) return loadSchedules(true);
+          if (data.success || scheduleId) return loadSchedules(true);
         })
         .catch(error => setMessage("登録に失敗しました：" + error.message))
         .finally(() => {
