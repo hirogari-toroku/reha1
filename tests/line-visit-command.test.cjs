@@ -20,7 +20,7 @@ function fixture(extraUsers = [], extraPairs = []) {
 
 test('only assigned full-name commands register, preserving canonical name', () => {
   const parse = fixture();
-  for (const text of ['山田太郎 開始', '山田 太郎　開始', '山田太郎 終了']) {
+  for (const text of ['山田太郎 開始', '山田 太郎　開始', '山田太郎 終了', '山田太郎様 開始', '山田　太郎 様　終了', '山田 太郎様 終了']) {
     const rows = parse(text);
     assert.equal(rows.length, 1);
     assert.equal(rows[0][3], '山田太郎');
@@ -28,12 +28,12 @@ test('only assigned full-name commands register, preserving canonical name', () 
   assert.equal(parse('テスト利用者 開始').length, 1);
 });
 
-test('surname, absent names, honorifics, aliases and conversational messages never register', () => {
+test('surname, absent names, unsupported honorifics and conversational messages never register', () => {
   const parse = fixture();
-  for (const text of ['山田 開始', '開始', '終了', '山田様 開始', '山田太郎様 開始', '山田太郎さん 終了',
+  for (const text of ['山田 開始', '開始', '終了', '山田様 開始', '山田太郎様様 開始', '山田太郎さん 終了',
     '山田太郎開始', '山田太郎 開始しました', '山田太郎は来週開始予定です',
     '山田太郎について相談 開始', '山田太郎 開始？', '山田太郎\n開始',
-    '山田太郎 開始\n相談です', '「山田太郎 開始」', '佐藤次郎 終了']) {
+    '山田太郎 開始\n相談です', '「山田太郎 開始」', '佐藤次郎 終了', '山田太郎様の訪問を開始します']) {
     assert.equal(parse(text).length, 0, text);
   }
 });

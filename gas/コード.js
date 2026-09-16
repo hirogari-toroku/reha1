@@ -233,7 +233,7 @@ function doPost(e) {
 
     if (/開始|終了/.test(text) && !isScheduleLikeMessage_(text)) {
       replyMessages.push({ replyToken, userId, staffName,
-        message: "実績として登録していません。登録済みの担当利用者のフルネームと半角スペースに続けて、開始または終了だけを1通で送ってください。\n例：山田太郎 開始\n様・さん、苗字のみ、名前なし、文章を付けた報告は登録しません。" });
+        message: "実績として登録していません。担当利用者の登録済みフルネームとスペースに続けて、開始または終了だけを1行で送ってください。\n例：山田太郎 開始／山田太郎様 終了\n様は任意、スペースは半角・全角どちらも可です。苗字のみ、名前なし、文章付きの報告は登録しません。" });
       return;
     }
 
@@ -2995,9 +2995,9 @@ function parseVisitResult_(ss, text, receivedAt, staffName, userId) {
   if (/[\r\n]/.test(input)) return [];
   const match = input.match(/^(.+?)[ \t\u3000]+(開始|終了)$/);
   if (!match) return [];
-  // Unlike normalizeName_, exact command matching must not strip honorifics or punctuation.
+  // Accept only the optional terminal 様; never strip punctuation or infer surnames.
   const exactName = value => String(value || "").replace(/[ \t\u3000]/g, "");
-  const target = exactName(match[1]);
+  const target = exactName(match[1]).replace(/様$/, "");
   const sheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
   if (!sheet) return [];
   const candidates = sheet.getDataRange().getValues().slice(1).filter(row =>
