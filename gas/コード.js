@@ -5272,9 +5272,7 @@ function applyLineUserDirectoryToMastersCore_(ss) {
 
   const rows = directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
   const staffSheet = ss.getSheetByName(STAFF_SHEET_NAME);
-  const userSheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
   const staffCols = staffSheet ? getStaffMasterColumnMap_(staffSheet) : null;
-  const userCols = userSheet ? ensureUserMasterLineColumns_(userSheet) : null;
   let staffUpdatedCount = 0;
   let userUpdatedCount = 0;
   let skippedCount = 0;
@@ -5286,7 +5284,6 @@ function applyLineUserDirectoryToMastersCore_(ss) {
     const displayName = String(row[4] || "").trim();
     const type = String(row[5] || "").trim();
     const staffRow = Number(row[7]) || 0;
-    const userRow = Number(row[8]) || 0;
 
     if (type === "スタッフ" && staffSheet && staffCols && staffRow >= 2) {
       const result = applyLineUserDirectoryToStaffRow_(
@@ -5304,15 +5301,8 @@ function applyLineUserDirectoryToMastersCore_(ss) {
       return;
     }
 
-    if (type === "利用者" && userSheet && userCols && userRow >= 2) {
-      const result = applyLineUserDirectoryToUserRow_(
-        userSheet,
-        userCols,
-        userRow,
-        displayName,
-        messagingLineUserId,
-        liffLineUserId
-      );
+    if (type === "利用者") {
+      const result = applyLineUserDirectoryToUserRow_();
       userUpdatedCount += result.updated ? 1 : 0;
       skippedCount += result.skipped ? 1 : 0;
       directorySheet.getRange(rowNumber, 10).setValue(result.status);
@@ -5383,20 +5373,12 @@ function applyLineUserDirectoryToStaffRow_(sheet, cols, rowNumber, displayName, 
 }
 
 function applyLineUserDirectoryToUserRow_(sheet, cols, rowNumber, displayName, messagingLineUserId, liffLineUserId) {
-  const row = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const updates = [];
-  const conflicts = [];
-
-  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineDisplayName, displayName, "LINE表示名");
-  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineUserId, messagingLineUserId, "LINEユーザーID");
-  addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.liffLineUserId, liffLineUserId, "LIFF用LINEユーザーID");
-  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
-
+  // Keep legacy callers harmless: viewer identity belongs to the confirmed link table.
   return {
-    updated: updates.length > 0,
-    skipped: updates.length === 0 || conflicts.length > 0,
-    status: conflicts.length > 0 ? "利用者マスタ一部確認" : "利用者マスタ反映済み",
-    note: conflicts.join(" / ")
+    updated: false,
+    skipped: true,
+    status: "利用者LINE連携で管理",
+    note: "利用者・家族のLINEを確認・紐づけから管理してください。旧LINE欄へは転記しません。"
   };
 }
 
@@ -6843,6 +6825,7 @@ function ensureCouponBaselineSheet_(ss) {
   }
 
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
   sheet.setFrozenRows(1);
   sheet.getRange(1, 1, 1, headers.length)
     .setBackground("#1f2933")
@@ -7077,6 +7060,9 @@ function updateLiffDisplayMaster(suppressAlert) {
 
   sheet.clear();
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(1, 1, 1, headers.length).setNote(
+    "自動生成・手入力不要。スタッフマスタ、利用者マスタ、スタッフ利用者マスタを変更後、LIFF表示用マスタを更新してください。予定・実績・回数券・利用者の閲覧許可はこのシートでは管理しません。"
+  );
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
