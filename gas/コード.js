@@ -92,6 +92,7 @@ function doPost(e) {
     : {};
 
   if (json.action) {
+    if (json.action === "liffDiagnostic") return liffResponse_({}, recordLiffDiagnostic_(json));
     if (json.action === "userLinkSchedules") {
       return liffResponse_({}, userLinkRequest_(json));
     }

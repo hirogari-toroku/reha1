@@ -6,7 +6,7 @@ function sheet(rows){const writes=[];return {rows,writes,getLastRow:()=>rows.len
   getDataRange:()=>({getValues:()=>rows.map(r=>r.slice())}),
   getRange:(r,c,h=1,w=1)=>({getValues:()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>rows[r+i-1]?.[c+j-1]??'')),
     setValues(values){writes.push([r,c,values]);values.forEach((row,i)=>{rows[r+i-1]||=[];row.forEach((v,j)=>rows[r+i-1][c+j-1]=v);});},setValue(v){this.setValues([[v]]);}})};}
-function fixture(){const c=vm.createContext({});for(const name of ['コード.js','UserLink.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../gas',name),'utf8'),c);
+function fixture(){const c=vm.createContext({});for(const name of ['コード.js','LiffDiagnostics.js','UserLink.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../gas',name),'utf8'),c);
   const links=sheet([vm.runInContext('USER_LINK_HEADERS.slice()',c),['','','','未確認',LIFF,'未連携','old-hash','old-expiry','','','old-sent','','母の表示名','保持するメモ']]);
   const master=sheet([['利用者ID','利用者名','状態'],['U002','山田太郎','利用中']]);
   const directory=sheet([Array(13).fill(''),['','',MSG,'','母の表示名','','','','','','','山田太郎 母','']]);

@@ -1582,6 +1582,7 @@
       if (!lineUserId) return Promise.resolve();
       if (userLinkLoadPromise) return userLinkLoadPromise;
       const controller = new AbortController();
+      reportLiffStage("user_request");
       const timer = setTimeout(() => controller.abort(), 45000);
 
       document.getElementById("scheduleList").innerHTML = "";
@@ -1590,10 +1591,11 @@
       userLinkLoadPromise = fetch(GAS_URL, {
         method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
         credentials: "omit", referrerPolicy: "no-referrer", signal: controller.signal,
-        body: JSON.stringify({ action: "userLinkSchedules", accessToken: liff.getAccessToken() })
+        body: JSON.stringify({ action: "userLinkSchedules", accessToken: liff.getAccessToken(), traceId: liffTraceId })
       }).then(response => { if (!response.ok) throw new Error("通信に失敗しました。"); return response.json(); })
         .then(data => {
           scheduleItems = data.schedules || [];
+          reportLiffStage(data.pending ? "user_pending" : data.success ? "user_shown" : "user_rejected");
           userCoupon = data.success ? data.coupon || null : null;
           setResourceData(data && data.success ? data : {});
           if (data.userName) {
@@ -1611,6 +1613,8 @@
           setResourceData({});
           renderUserScheduleList();
           setMessage("予約の取得に失敗しました：" + error.message);
+          reportLiffStage("user_network_failed");
+          setMessage("予約の取得に失敗しました。開き直しても続く場合は、この画面をお知らせください。受付番号：" + liffTraceId);
         }).finally(() => { clearTimeout(timer); userLinkLoadPromise = null; });
       return userLinkLoadPromise;
     }
@@ -2811,6 +2815,18 @@
         });
     }
 
+    const liffTraceId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+    const liffReportedStages = new Set();
+    function reportLiffStage(stage) {
+      if (liffReportedStages.has(stage)) return;
+      liffReportedStages.add(stage);
+      try {
+        fetch(GAS_URL, { method: "POST", mode: "no-cors", credentials: "omit", referrerPolicy: "no-referrer", keepalive: true,
+          headers: { "Content-Type": "text/plain;charset=UTF-8" },
+          body: JSON.stringify({ action: "liffDiagnostic", traceId: liffTraceId, stage: stage }) }).catch(() => {});
+      } catch (_) {}
+    }
+
     setToday();
     setDisabled(true);
     if (appMode === "user") setupUserModeView();
@@ -2821,9 +2837,12 @@
     if (appMode === "important") setupImportantModeView();
 
     if (appMode !== "qr") {
-      liff.init({ liffId: LIFF_ID })
+      reportLiffStage("page_open");
+      Promise.resolve().then(() => liff.init({ liffId: LIFF_ID }))
         .then(() => {
+          reportLiffStage("init_ok");
           if (!liff.isLoggedIn()) {
+            reportLiffStage("login_redirect");
             liff.login({ redirectUri: window.location.href });
             return;
           }
@@ -2832,6 +2851,7 @@
         })
         .then(profile => {
           if (!profile) return;
+          reportLiffStage("profile_ok");
           lineUserId = profile.userId;
           lineDisplayName = profile.displayName || "";
           document.getElementById("staff").innerText =
@@ -2849,8 +2869,9 @@
           if (appMode !== "register" && appMode !== "staff-register") setDisabled(false);
         })
         .catch(error => {
+          reportLiffStage("init_failed");
           setDisabled(true);
-          setMessage("LIFF初期化エラー：" + error.message);
+          setMessage("LINEの読み込みに失敗しました。開き直しても続く場合は、この画面をお知らせください。受付番号：" + liffTraceId);
         });
     }
   </script>

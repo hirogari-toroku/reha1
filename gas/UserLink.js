@@ -121,13 +121,17 @@ function userLinkResolve_(ss, id) {
 }
 
 function userLinkRequest_(data) {
+  let diagnosticProfile = null;
   try {
     const profile = userLinkVerify_(data.accessToken);
+    diagnosticProfile = profile;
+    logUserLinkStage_(data, "verified", profile);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (getStaffNameCached_(ss, profile.userId) !== "未登録") userLinkFail_("スタッフの方は通常の予約確認ページから開き直してください。");
     const user = userLinkResolve_(ss, profile.userId);
     if (!user) {
       userLinkCapturePending_(ss, profile);
+      logUserLinkStage_(data, "pending_saved", profile);
       return { success: false, pending: true, schedules: [], message: "LINE情報を受け付けました。管理者が確認・登録後に予定を表示します。公式LINEへ利用者様のお名前と続柄をお知らせください。" };
     }
     const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
@@ -137,8 +141,10 @@ function userLinkRequest_(data) {
     // Return only the fields rendered to users; never expose chart or staff-folder URLs.
     const schedules = items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText }));
     const coupon = getCouponDisplayMap_(ss)[normalizeName_(user.name)] || null;
+    logUserLinkStage_(data, "schedules_returned", profile);
     return { success: true, linked: true, userName: user.name, schedules: schedules, coupon: coupon, message: schedules.length ? "" : "対象期間内の予約はありません。" };
   } catch (error) {
+    logUserLinkStage_(data, "request_failed", diagnosticProfile);
     return { success: false, schedules: [], message: error.userLinkSafe ? error.message : "通信または連携処理に失敗しました。時間をおいて再度お試しください。" };
   }
 }

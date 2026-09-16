@@ -21,7 +21,12 @@ const assert = require('node:assert/strict');
           const data=role==='staff'?{success:true,staffName:'テスト担当',users:[{name:'テスト利用者'}],schedules:[{scheduleId:'test',userName:'テスト利用者',visitDate:'9/20',visitDateValue:'2026-09-20',status:'予定',chartUrl:'https://example.test/chart'}]}:{success:false,role:'userOrPending'};
           return route.fulfill({contentType:'application/javascript',body:url.searchParams.get('callback')+'('+JSON.stringify(data)+')'});
         }
-        calls++;const data=route.request().postDataJSON();
+        const data=route.request().postDataJSON();
+        if(data.action==='liffDiagnostic') {
+          assert.deepEqual(Object.keys(data).sort(),['action','stage','traceId']);
+          return route.fulfill({contentType:'application/json',body:'{"success":true}'});
+        }
+        calls++;
         assert.equal(route.request().method(),'POST');assert.equal(data.accessToken,'fixture-token');
         assert.equal(data.inviteToken,undefined);
         return route.fulfill({contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify(role==='pending'?{success:false,pending:true,schedules:[],message:'管理者が確認・登録後に予定を表示します。'}:{success:true,userName:'テスト利用者',coupon:{balance:3,status:'OK'},schedules:[{visitDate:'9/20',staffName:'テスト担当',status:'完了',lastVisitText:'開始 18:00 / 終了 19:00'}]})});
