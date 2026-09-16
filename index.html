@@ -2818,6 +2818,8 @@
     const liffTraceId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
     const liffReportedStages = new Set();
     function reportLiffStage(stage) {
+      // Normal navigation needs no extra requests; the server records its result.
+      if (stage !== "init_failed" && stage !== "user_network_failed") return;
       if (liffReportedStages.has(stage)) return;
       liffReportedStages.add(stage);
       try {

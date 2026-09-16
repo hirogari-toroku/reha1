@@ -78,6 +78,15 @@ function frontend() {
     resolve: value => resolve(value), reject: error => reject(error) };
 }
 
+test('user filter skips other users before expensive visit processing', () => {
+  const c = backend(), parsed = [];
+  c.parseComparisonDate_ = value => { parsed.push(value); return null; };
+  const sheet = { getLastRow: () => 4, getLastColumn: () => 8,
+    getRange: () => ({ getValues: () => [[null, '終了', 'A', 'U', 'a'], [null, '終了', 'B', 'V', 'b'], [null, '終了', 'B', 'U', 'c']] }) };
+  c.buildVisitStatusIndex_(sheet, '', 'U');
+  assert.deepEqual(parsed, ['a', 'c']);
+});
+
 test('staff resources expose one folder and old user JSON retains the chart', () => {
   const c = backend();
   c.getStaffMasterColumnMap_ = () => ({ name: 0, payrollFolderId: 1 });

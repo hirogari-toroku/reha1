@@ -125,7 +125,6 @@ function userLinkRequest_(data) {
   try {
     const profile = userLinkVerify_(data.accessToken);
     diagnosticProfile = profile;
-    logUserLinkStage_(data, "verified", profile);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (getStaffNameCached_(ss, profile.userId) !== "未登録") userLinkFail_("スタッフの方は通常の予約確認ページから開き直してください。");
     const user = userLinkResolve_(ss, profile.userId);
@@ -136,7 +135,7 @@ function userLinkRequest_(data) {
     }
     const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
     if (!scheduleSheet) userLinkFail_("訪問予定を確認できません。管理者へご連絡ください。");
-    const visits = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+    const visits = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), "", user.name);
     const items = collectActiveSchedulesForUser_(scheduleSheet, user.name, visits);
     // Return only the fields rendered to users; never expose chart or staff-folder URLs.
     const schedules = items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText }));

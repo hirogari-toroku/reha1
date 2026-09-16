@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
       for (const role of ['user', 'pending', 'staff']) {
       const page = await browser.newPage({viewport});
       const errors=[];page.on('pageerror',e=>errors.push(e.message));
-      let calls=0;
+      let calls=0,diagnosticCalls=0;
       await page.route('https://hirogari-toroku.github.io/reha1/**',route=>route.fulfill({contentType:'text/html',body:fs.readFileSync(path.join(__dirname,'../index.html'),'utf8')}));
       await page.route('https://static.line-scdn.net/**',route=>route.fulfill({contentType:'application/javascript',body:`window.liff={init:()=>Promise.resolve(),isLoggedIn:()=>true,getProfile:()=>Promise.resolve({userId:'test-liff',displayName:'母'}),getAccessToken:()=> 'fixture-token'};`}));
       await page.route('https://script.google.com/**',route=>{
@@ -23,6 +23,7 @@ const assert = require('node:assert/strict');
         }
         const data=route.request().postDataJSON();
         if(data.action==='liffDiagnostic') {
+          diagnosticCalls++;
           assert.deepEqual(Object.keys(data).sort(),['action','stage','traceId']);
           return route.fulfill({contentType:'application/json',body:'{"success":true}'});
         }
@@ -51,6 +52,7 @@ const assert = require('node:assert/strict');
         assert.equal(await page.getByRole('link',{name:'カルテ',exact:true}).count(),0);
       }
       assert.deepEqual(errors,[]);
+      assert.equal(diagnosticCalls,0,'normal loading must not send diagnostic requests');
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
       await page.screenshot({path:`/tmp/hirogari-common-${role}-${viewport.width}.png`,fullPage:true});
       await page.close();

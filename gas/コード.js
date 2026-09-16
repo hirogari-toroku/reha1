@@ -2270,15 +2270,17 @@ function isCancelledScheduleStatus_(status) {
   return /キャンセル|取消|中止/.test(String(status || "").trim());
 }
 
-function buildVisitStatusIndex_(sheet, targetStaffName) {
+function buildVisitStatusIndex_(sheet, targetStaffName, targetUserName) {
   const index = {};
   if (!sheet || sheet.getLastRow() < 2) return index;
 
   const targetStaff = targetStaffName ? normalizeName_(targetStaffName) : "";
+  const targetUser = targetUserName ? normalizeName_(targetUserName) : "";
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 8)).getValues();
 
   values.forEach(row => {
     if (targetStaff && normalizeName_(row[2]) !== targetStaff) return;
+    if (targetUser && normalizeName_(row[3]) !== targetUser) return;
     const registeredAt = row[0];
     const visitType = String(row[1] || "").trim();
     const staffName = String(row[2] || "").trim();
