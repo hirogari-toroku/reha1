@@ -1,5 +1,6 @@
 // Registration captures an unverified contact only; it never grants schedule access.
 function saveRegistrationContact_(ss, lineUserId, displayName) {
+  const startedAt = Date.now();
   const id = String(lineUserId || "").trim();
   const name = String(displayName || "").trim();
   if (!/^U[0-9a-f]{32}$/.test(id) || name.length > 200) {
@@ -27,7 +28,7 @@ function saveRegistrationContact_(ss, lineUserId, displayName) {
     if (target) sheet.getRange(target.index + 2, 1, 1, 13).setValues([row]);
     else sheet.appendRow(row);
     SpreadsheetApp.flush();
-    return { success: true, lineUserId: id, displayName: name,
+    return { success: true, lineUserId: id, displayName: name, serverMs: Date.now() - startedAt,
       message: "LINE情報を保存しました。利用申請フォームへ移動します。" };
   } finally { lock.releaseLock(); }
 }

@@ -1100,6 +1100,8 @@
     const REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfxwcL2rCPAbkbmtPhxhzFdWBQeUyRh690JLXXmbUYZ3kDNnQ/viewform?usp=dialog";
     const STAFF_REGISTRATION_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfTjEQpVCXOUO5igr02E5yn_QnbuIUY9KoXvb2_VyxjCcxmYA/viewform?usp=dialog";
     const requestedMode = new URLSearchParams(window.location.search).get("mode");
+    const registrationTimingEnabled = requestedMode === "register" && new URLSearchParams(window.location.search).get("timing") === "1";
+    const registrationTiming = {};
     let appMode = requestedMode === "user" || requestedMode === "register" || requestedMode === "staff-register" || requestedMode === "admin" || requestedMode === "qr" || requestedMode === "important" ? requestedMode : "staff";
 
     let lineUserId = "";
@@ -1662,6 +1664,7 @@
     }
 
     function logRegisterLiffLogin(displayName) {
+      registrationTiming.saveStart = performance.now();
       const params = new URLSearchParams({
         action: "logRegisterLiffLogin",
         lineUserId: lineUserId,
@@ -1677,6 +1680,18 @@
           document.getElementById("registerOpenForm").disabled = false;
           if (!data || data.success !== true) {
             setMessage((data && data.message) || "LINE情報の保存を確認できませんでした。");
+            return data;
+          }
+          if (registrationTimingEnabled) {
+            const end = performance.now();
+            const seconds = ms => (ms / 1000).toFixed(2) + "秒";
+            setMessage("計測結果（フォーム表示時間は含みません）\n" +
+              "画面読込・準備：" + seconds(registrationTiming.initStart) + "\n" +
+              "LINE初期化：" + seconds(registrationTiming.initEnd - registrationTiming.initStart) + "\n" +
+              "プロフィール取得：" + seconds(registrationTiming.saveStart - registrationTiming.initEnd) + "\n" +
+              "保存通信：" + seconds(end - registrationTiming.saveStart) + "\n" +
+              (typeof data.serverMs === "number" ? "うちサーバー保存処理：" + seconds(data.serverMs) + "\n" : "") +
+              "ここまで合計：" + seconds(end) + "\n下のボタンからフォームへ進めます。");
             return data;
           }
           scheduleRegistrationFormOpen(openRegistrationForm, data.message || "LINE情報を保存しました。利用申請フォームへ移動します。");
@@ -2848,8 +2863,12 @@
 
     if (appMode !== "qr") {
       reportLiffStage("page_open");
-      Promise.resolve().then(() => liff.init({ liffId: LIFF_ID }))
+      Promise.resolve().then(() => {
+        registrationTiming.initStart = performance.now();
+        return liff.init({ liffId: LIFF_ID });
+      })
         .then(() => {
+          registrationTiming.initEnd = performance.now();
           reportLiffStage("init_ok");
           if (!liff.isLoggedIn()) {
             reportLiffStage("login_redirect");
