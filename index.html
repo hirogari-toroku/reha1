@@ -1675,8 +1675,8 @@
           document.getElementById("staff").innerText =
             "LINE表示名：" + (lineDisplayName || "取得済み");
           document.getElementById("registerOpenForm").disabled = false;
-          if (data && data.success === false) {
-            setMessage(data.message || "LINE情報の保存を確認できませんでした。");
+          if (!data || data.success !== true) {
+            setMessage((data && data.message) || "LINE情報の保存を確認できませんでした。");
             return data;
           }
           scheduleRegistrationFormOpen(openRegistrationForm, data.message || "LINE情報を保存しました。利用申請フォームへ移動します。");
@@ -1742,7 +1742,8 @@
 
       if (window.sessionStorage) sessionStorage.setItem(storageKey, "1");
       setMessage(message);
-      setTimeout(openFn, 700);
+      if (appMode === "register") openFn();
+      else setTimeout(openFn, 700);
     }
 
     function openStaffRegistrationForm() {

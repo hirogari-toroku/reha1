@@ -718,43 +718,7 @@ function logUserLiffLogin_(lineUserId, displayName) {
 }
 
 function logRegisterLiffLogin_(lineUserId, displayName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const match = findUserDirectoryMatchByLineOrName_(ss, lineUserId, displayName);
-  const now = new Date();
-
-  saveLineUserDirectory_(ss, {
-    source: "新規利用者登録LIFF",
-    liffLineUserId: lineUserId,
-    displayName: displayName,
-    detectedUserName: match ? match.name : "",
-    checkedAt: now,
-    lastMessage: "新規利用者登録フォームへ遷移"
-  });
-
-  saveLiffOperationLog_(
-    ss,
-    "logRegisterLiffLogin",
-    lineUserId,
-    "",
-    match ? match.name : "",
-    "",
-    "",
-    "",
-    match ? "既存候補あり" : "新規登録",
-    match
-      ? "新規利用者登録LIFFを開きました。既存利用者候補：" + match.name
-      : "新規利用者登録LIFFを開きました。フォーム入力後に利用者マスタへ登録してください。",
-    displayName
-  );
-
-  return {
-    success: true,
-    linked: !!match,
-    userName: match ? match.name : "",
-    lineUserId: lineUserId || "",
-    displayName: displayName || "",
-    message: "LINE情報を保存しました。続けて利用申請フォームへ進んでください。"
-  };
+  return saveRegistrationContact_(SpreadsheetApp.getActiveSpreadsheet(), lineUserId, displayName);
 }
 
 function logStaffRegisterLiffLogin_(lineUserId, displayName) {
