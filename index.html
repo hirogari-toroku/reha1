@@ -2186,6 +2186,14 @@
         : "利用者に表示される予約確認画面の確認です。";
       result.appendChild(note);
 
+      if (data.targetType === "user" && data.coupon) {
+        const summary = document.createElement("div");
+        summary.className = "schedule-card";
+        summary.textContent = "回数券 ";
+        appendCouponBadge(summary, { coupon: data.coupon });
+        result.appendChild(summary);
+      }
+
       const schedules = data.schedules || [];
       if (!schedules.length) {
         const empty = document.createElement("div");
@@ -2215,7 +2223,7 @@
         if (data.targetType === "staff") {
           appendTitleChartLink(name, item);
         }
-        appendCouponBadge(name, item);
+        appendCouponBadge(name, data.targetType === "user" ? { coupon: data.coupon || item.coupon } : item);
 
         const status = document.createElement("span");
         status.className = "status-pill";

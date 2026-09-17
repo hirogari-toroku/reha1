@@ -8338,7 +8338,13 @@ function adminPreviewSchedulesFromLiff_(lineUserId, displayName, targetType, tar
   const schedules = normalizedType === "staff"
     ? collectActiveSchedulesForStaff_(scheduleSheet, target.name, visitStatusIndex)
     : collectActiveSchedulesForUser_(scheduleSheet, target.name, visitStatusIndex);
-  enrichLiffScheduleItemsWithUserResources_(ss, schedules);
+  let coupon = null;
+  if (normalizedType === "user") {
+    // Match the real user response, including when there are no schedules.
+    coupon = getCouponDisplayMap_(ss)[normalizeName_(target.name)] || null;
+  } else {
+    enrichLiffScheduleItemsWithUserResources_(ss, schedules);
+  }
 
   return {
     success: true,
@@ -8347,6 +8353,7 @@ function adminPreviewSchedulesFromLiff_(lineUserId, displayName, targetType, tar
     targetId: normalizedId,
     targetName: target.name,
     displayName: target.lineDisplayName || "",
+    coupon: coupon,
     schedules: schedules,
     message: schedules.length ? "代理表示を読み込みました。" : "対象期間内の予定はありません。"
   };
