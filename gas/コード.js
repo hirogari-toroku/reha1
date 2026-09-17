@@ -993,8 +993,8 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
   }
 
   const propertyData = getLiffInitDataFromProperties_(targetUserId);
-  if (propertyData) {
-    cache.put(cacheKey, JSON.stringify(propertyData), LIFF_INIT_CACHE_SECONDS);
+  if (propertyData !== undefined) {
+    if (propertyData) cache.put(cacheKey, JSON.stringify(propertyData), LIFF_INIT_CACHE_SECONDS);
     return propertyData;
   }
 
@@ -1053,13 +1053,14 @@ function getLiffInitDataFromProperties_(lineUserId) {
     json = props.getProperty("LIFF_DISPLAY_MASTER_JSON") || "";
   }
 
-  if (!json) return null;
+  if (!json) return undefined;
 
   try {
     const map = JSON.parse(json);
+    if (!map || typeof map !== "object" || Array.isArray(map)) return undefined;
     return map[lineUserId] || null;
   } catch (error) {
-    return null;
+    return undefined;
   }
 }
 
@@ -2502,6 +2503,10 @@ function normalizeLiffTimeText_(value, fallbackDate) {
 function getHeaderColumnMap_(sheet) {
   const lastColumn = sheet.getLastColumn();
   const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  return buildHeaderColumnMap_(headers);
+}
+
+function buildHeaderColumnMap_(headers) {
   const map = {};
 
   headers.forEach((header, index) => {
@@ -6493,7 +6498,7 @@ function getCouponDisplayMap_(ss) {
   if (!sheet || sheet.getLastRow() < 2) return map;
 
   const values = sheet.getDataRange().getValues();
-  const headerMap = getHeaderColumnMap_(sheet);
+  const headerMap = buildHeaderColumnMap_(values[0]);
   const userNameCol = getColumnIndex_(headerMap, ["利用者名"], 0);
   const balanceCol = getColumnIndex_(headerMap, ["回数券残数"], 1);
   const unpaidCol = getColumnIndex_(headerMap, ["未払い残高", "不足金額"], 2);
