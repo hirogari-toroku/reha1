@@ -11,8 +11,9 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
       await page.route('https://hirogari-toroku.github.io/**', r => r.fulfill({contentType:'text/html',body:fs.readFileSync(path.join(__dirname,'../index.html'),'utf8')}));
       await page.route('https://static.line-scdn.net/**', r => r.fulfill({contentType:'application/javascript',body:`window.liff={init:async()=>{},isLoggedIn:()=>true,getProfile:async()=>({userId:'U${'1'.repeat(32)}',displayName:'テスト'}),isInClient:()=>true,openWindow:({url})=>window.recordOpen(url)};`}));
       await page.route('https://script.google.com/**', async r => {
-        const u = new URL(r.request().url()); calls.push(u.searchParams.get('action'));
-        await r.fulfill({contentType:'application/javascript',body:`${u.searchParams.get('callback')}(${JSON.stringify({success,message:success?'保存しました':'保存失敗'})})`});
+        assert.equal(r.request().method(),'POST');
+        calls.push(r.request().postDataJSON().action);
+        await r.fulfill({contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify({success,message:success?'保存しました':'保存失敗'})});
       });
       await page.goto('https://hirogari-toroku.github.io/reha1/?mode=register' + (mode === 'timing' ? '&timing=1' : ''));
       await page.waitForFunction(() => !document.getElementById('registerOpenForm').disabled);

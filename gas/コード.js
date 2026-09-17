@@ -83,9 +83,6 @@ function doPost(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const replyMessages = [];
   const NL = String.fromCharCode(10);
-  const rawSheet = ss.getSheetByName(RAW_LOG_SHEET_NAME);
-  const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
-  const resultSheet = ss.getSheetByName(VISIT_RESULT_SHEET_NAME);
 
   const json = e && e.postData && e.postData.contents
     ? JSON.parse(e.postData.contents)
@@ -102,6 +99,9 @@ function doPost(e) {
   }
 
   const events = json.events || [];
+  const rawSheet = ss.getSheetByName(RAW_LOG_SHEET_NAME);
+  const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  const resultSheet = ss.getSheetByName(VISIT_RESULT_SHEET_NAME);
 
   events.forEach(event => {
     if (event.type === "follow") {
@@ -135,6 +135,16 @@ function doPost(e) {
 
     const receivedAt = new Date();
     const userId = event.source.userId || "";
+    const menuText = String(event.message.text || "").trim();
+    if (menuText === "1" || menuText === "4") {
+      const capture = saveRegistrationContact_(ss, userId, getLineDisplayNameFromEvent_(event), {
+        messaging: true, source: "公式LINE登録メニュー", message: menuText
+      });
+      if (!capture.success) throw new Error(capture.message);
+      rawSheet.appendRow([receivedAt, "", userId, event.message.text]);
+      saveLineMessageLog_(ss, receivedAt, "受信", "", userId, event.message.text);
+      return;
+    }
     const staffName = getStaffNameFromLineEvent_(ss, event);
     const isRegisteredStaff = staffName !== "未登録";
     const calendarId = getStaffCalendarIdFromLineEvent_(ss, event);
@@ -668,7 +678,7 @@ function initLiffApp_(lineUserId, displayName) {
   return {
     success: true,
     staffName: staffName,
-    importantInfo: getImportantInfoLinks_(ss),
+    importantInfo: {},
     users: users,
     lineUserId: lineUserId || "",
     displayName: displayName || "",
@@ -722,43 +732,8 @@ function logRegisterLiffLogin_(lineUserId, displayName) {
 }
 
 function logStaffRegisterLiffLogin_(lineUserId, displayName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const match = findStaffDirectoryMatch_(ss, displayName, "");
-  const now = new Date();
-
-  saveLineUserDirectory_(ss, {
-    source: "スタッフ新規登録LIFF",
-    liffLineUserId: lineUserId,
-    displayName: displayName,
-    detectedStaffName: match ? match.name : "",
-    checkedAt: now,
-    lastMessage: "スタッフ登録フォームへ遷移"
-  });
-
-  saveLiffOperationLog_(
-    ss,
-    "logStaffRegisterLiffLogin",
-    lineUserId,
-    match ? match.name : "",
-    "",
-    "",
-    "",
-    "",
-    match ? "スタッフ候補あり" : "スタッフ新規登録",
-    match
-      ? "スタッフ登録LIFFを開きました。既存スタッフ候補：" + match.name
-      : "スタッフ登録LIFFを開きました。フォーム回答後にスタッフマスタへ登録してください。",
-    displayName
-  );
-
-  return {
-    success: true,
-    linked: !!match,
-    staffName: match ? match.name : "",
-    lineUserId: lineUserId || "",
-    displayName: displayName || "",
-    message: "LINE情報を保存しました。続けてスタッフ登録フォームへ進みます。"
-  };
+  return saveRegistrationContact_(SpreadsheetApp.getActiveSpreadsheet(), lineUserId, displayName,
+    { source: "スタッフ新規登録LIFF" });
 }
 
 function saveUnregisteredLiffLogin_(ss, lineUserId, displayName, action) {
@@ -993,7 +968,7 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
         staffFolderUrl: (staffFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][staffFolderUrlCol]) : "") ||
           (payslipFolderUrlCol >= 0 ? normalizeResourceUrl_(values[i][payslipFolderUrlCol]) : "")
       },
-      importantInfo: getImportantInfoLinks_(ss),
+      importantInfo: {},
       users: users
     };
 
@@ -1607,7 +1582,7 @@ function getSchedulesForLiff_(lineUserId) {
     success: true,
     staffName: staffName,
     staffResources: displayMasterData ? displayMasterData.staffResources || {} : {},
-    importantInfo: displayMasterData ? displayMasterData.importantInfo || getImportantInfoLinks_(ss) : getImportantInfoLinks_(ss),
+    importantInfo: {},
     users: displayMasterData ? displayMasterData.users || [] : [],
     schedules: schedules
   };
@@ -1706,7 +1681,7 @@ function getImportantInfoForLiff_(lineUserId, displayName) {
       staffName: displayMasterData.staffName || "",
       lineUserId: id,
       displayName: name,
-      importantInfo: displayMasterData.importantInfo || getImportantInfoLinks_(ss),
+      importantInfo: getImportantInfoLinks_(ss),
       users: displayMasterData.users || [],
       message: ""
     };

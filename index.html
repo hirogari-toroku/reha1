@@ -1663,6 +1663,20 @@
         });
     }
 
+    async function saveRegistrationRequest(params) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      try {
+        const response = await fetch(GAS_URL, {
+          method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
+          body: JSON.stringify(Object.fromEntries(params)), signal: controller.signal,
+          credentials: "omit"
+        });
+        if (!response.ok) throw new Error("保存結果を受信できませんでした。");
+        return await response.json();
+      } finally { clearTimeout(timer); }
+    }
+
     function logRegisterLiffLogin(displayName) {
       registrationTiming.saveStart = performance.now();
       const params = new URLSearchParams({
@@ -1673,7 +1687,7 @@
 
       setMessage("LINE情報を保存しています...");
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      return saveRegistrationRequest(params)
         .then(data => {
           document.getElementById("staff").innerText =
             "LINE表示名：" + (lineDisplayName || "取得済み");
@@ -1699,9 +1713,9 @@
         })
         .catch(error => {
           document.getElementById("staff").innerText =
-            "LINE情報の保存に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+            "LINE情報の保存結果を確認できませんでした。";
           document.getElementById("registerOpenForm").disabled = false;
-          setMessage("ログイン記録エラー：" + error.message);
+          setMessage("通信の返答を確認できません。保存済みの場合もあります。管理者へお知らせください。");
           return { success: false, message: error.message };
         });
     }
@@ -1715,13 +1729,13 @@
 
       setMessage("LINE情報を保存しています...");
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      return saveRegistrationRequest(params)
         .then(data => {
           document.getElementById("staff").innerText =
             "LINE表示名：" + (lineDisplayName || "取得済み");
           document.getElementById("registerOpenForm").disabled = false;
-          if (data && data.success === false) {
-            setMessage(data.message || "LINE情報の保存を確認できませんでした。");
+          if (!data || data.success !== true) {
+            setMessage((data && data.message) || "LINE情報の保存を確認できませんでした。");
             return data;
           }
           scheduleRegistrationFormOpen(openStaffRegistrationForm, data.message || "LINE情報を保存しました。スタッフ登録フォームへ移動します。");
@@ -1729,9 +1743,9 @@
         })
         .catch(error => {
           document.getElementById("staff").innerText =
-            "LINE情報の保存に失敗しました。\nLIFF用LINEユーザーID：" + lineUserId;
+            "LINE情報の保存結果を確認できませんでした。";
           document.getElementById("registerOpenForm").disabled = false;
-          setMessage("ログイン記録エラー：" + error.message);
+          setMessage("通信の返答を確認できません。保存済みの場合もあります。管理者へお知らせください。");
           return { success: false, message: error.message };
         });
     }
@@ -1757,8 +1771,7 @@
 
       if (window.sessionStorage) sessionStorage.setItem(storageKey, "1");
       setMessage(message);
-      if (appMode === "register") openFn();
-      else setTimeout(openFn, 700);
+      openFn();
     }
 
     function openStaffRegistrationForm() {

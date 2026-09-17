@@ -34,3 +34,11 @@ test('same display name does not merge accounts; duplicate ID and invalid inputs
   assert.equal(f.c.logRegisterLiffLogin_('bad','same').success,false);
   assert.equal(f.rows.length,3);
 });
+test('staff registration is capture only, menu capture keeps LIFF identity separate', () => {
+  const f = fixture();
+  assert.equal(f.c.logStaffRegisterLiffLogin_(id,'staff').success,true);
+  assert.equal(f.rows[0][10],'スタッフ新規登録LIFF');
+  f.c.saveRegistrationContact_({},id,'staff',{messaging:true,source:'公式LINE登録メニュー',message:'4'});
+  assert.equal(f.rows.length,2);
+  assert.equal(f.rows[1][2],id); assert.equal(f.rows[1][3],'');
+});
