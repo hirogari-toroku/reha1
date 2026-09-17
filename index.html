@@ -1554,7 +1554,7 @@
 
       if (!silent) setMessage("予定を読み込み中...");
 
-      scheduleLoadPromise = jsonp(GAS_URL + "?" + params.toString(), 45000)
+      scheduleLoadPromise = requestLiffData(params, 45000)
         .then(data => {
           if (!data.success) {
             scheduleItems = [];
@@ -1632,7 +1632,7 @@
 
       setMessage("重要事項説明を確認中...");
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      return requestLiffData(params)
         .then(data => {
           setResourceData(data && data.success ? data : {});
           if (data && data.success) {
@@ -1642,7 +1642,7 @@
               document.getElementById("staff").innerText = "利用者：" + (data.userName || lineDisplayName || "確認済み") + " 様";
             }
             setMessage("確認できました。重要事項説明ページへ移動します...");
-            setTimeout(redirectToImportantInfoPage, 500);
+            redirectToImportantInfoPage();
             return data;
           }
 
@@ -1664,15 +1664,19 @@
     }
 
     async function saveRegistrationRequest(params) {
+      return requestLiffData(params);
+    }
+
+    async function requestLiffData(params, timeoutMs = 20000) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(GAS_URL, {
           method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
           body: JSON.stringify(Object.fromEntries(params)), signal: controller.signal,
           credentials: "omit"
         });
-        if (!response.ok) throw new Error("保存結果を受信できませんでした。");
+        if (!response.ok) throw new Error("通信結果を受信できませんでした。");
         return await response.json();
       } finally { clearTimeout(timer); }
     }
@@ -2721,7 +2725,7 @@
         displayName: displayName || ""
       });
 
-      return jsonp(GAS_URL + "?" + params.toString()).then(data => {
+      return requestLiffData(params).then(data => {
         if (data.role === "userOrPending") {
           appMode = "user";
           setupUserModeView();

@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: 'chrome' });
   try {
-    for (const viewport of [{width:390,height:844},{width:1440,height:900}]) {
+    for (const viewport of (process.env.QUICK ? [{width:390,height:844}] : [{width:390,height:844},{width:1440,height:900}])) {
       for (const role of ['user', 'pending', 'staff']) {
       const page = await browser.newPage({viewport});
       const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -15,13 +15,12 @@ const assert = require('node:assert/strict');
       await page.route('https://static.line-scdn.net/**',route=>route.fulfill({contentType:'application/javascript',body:`window.liff={init:()=>Promise.resolve(),isLoggedIn:()=>true,getProfile:()=>Promise.resolve({userId:'test-liff',displayName:'母'}),getAccessToken:()=> 'fixture-token'};`}));
       await page.route('https://script.google.com/**',route=>{
         const url=new URL(route.request().url());
-        if (route.request().method()==='GET') {
-          const action=url.searchParams.get('action');
-          assert.ok(['commonInit','getSchedules'].includes(action));
-          const data=role==='staff'?{success:true,staffName:'テスト担当',users:[{name:'テスト利用者'}],schedules:[{scheduleId:'test',userName:'テスト利用者',visitDate:'9/20',visitDateValue:'2026-09-20',status:'予定',chartUrl:'https://example.test/chart'}]}:{success:false,role:'userOrPending'};
-          return route.fulfill({contentType:'application/javascript',body:url.searchParams.get('callback')+'('+JSON.stringify(data)+')'});
-        }
         const data=route.request().postDataJSON();
+        if (['commonInit','getSchedules'].includes(data.action)) {
+          assert.equal(route.request().method(),'POST');
+          const data=role==='staff'?{success:true,staffName:'テスト担当',users:[{name:'テスト利用者'}],schedules:[{scheduleId:'test',userName:'テスト利用者',visitDate:'9/20',visitDateValue:'2026-09-20',status:'予定',chartUrl:'https://example.test/chart'}]}:{success:false,role:'userOrPending'};
+          return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
+        }
         if(data.action==='liffDiagnostic') {
           diagnosticCalls++;
           assert.deepEqual(Object.keys(data).sort(),['action','stage','traceId']);
@@ -54,10 +53,10 @@ const assert = require('node:assert/strict');
       assert.deepEqual(errors,[]);
       assert.equal(diagnosticCalls,0,'normal loading must not send diagnostic requests');
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
-      await page.screenshot({path:`/tmp/hirogari-common-${role}-${viewport.width}.png`,fullPage:true});
+      if (!process.env.QUICK) await page.screenshot({path:`/tmp/hirogari-common-${role}-${viewport.width}.png`,fullPage:true});
       await page.close();
       }
     }
-    console.log('Common entrance user, pending and staff checks passed on mobile and desktop');
+    console.log('Common entrance user, pending and staff checks passed' + (process.env.QUICK ? ' (mobile, no screenshots)' : ' on mobile and desktop'));
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1;});

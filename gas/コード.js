@@ -630,13 +630,6 @@ function initLiffApp_(lineUserId, displayName) {
   const displayMasterData = getLiffInitDataFromDisplayMaster_(lineUserId);
 
   if (displayMasterData) {
-    saveLineUserDirectory_(ss, {
-      source: "LIFF",
-      liffLineUserId: lineUserId,
-      displayName: displayName,
-      detectedStaffName: displayMasterData.staffName,
-      checkedAt: new Date()
-    });
     return {
       success: true,
       staffName: displayMasterData.staffName,
@@ -650,15 +643,12 @@ function initLiffApp_(lineUserId, displayName) {
   }
 
   const staffName = getStaffNameCached_(ss, lineUserId);
-  saveLineUserDirectory_(ss, {
-    source: "LIFF",
-    liffLineUserId: lineUserId,
-    displayName: displayName,
-    detectedStaffName: staffName,
-    checkedAt: new Date()
-  });
 
   if (staffName === "未登録") {
+    saveLineUserDirectory_(ss, {
+      source: "LIFF", liffLineUserId: lineUserId,
+      displayName: displayName, checkedAt: new Date()
+    });
     const message = "スタッフが未登録です。管理者へ確認してください。\nLIFF用LINEユーザーID：" + lineUserId;
 
     saveUnregisteredLiffLogin_(ss, lineUserId, displayName, "init");
@@ -1653,28 +1643,6 @@ function getImportantInfoForLiff_(lineUserId, displayName) {
 
   const displayMasterData = getLiffInitDataFromDisplayMaster_(id);
   if (displayMasterData) {
-    saveLineUserDirectory_(ss, {
-      source: "重要事項説明LIFF",
-      liffLineUserId: id,
-      displayName: name,
-      detectedStaffName: displayMasterData.staffName || "",
-      checkedAt: new Date()
-    });
-
-    saveLiffOperationLog_(
-      ss,
-      "getImportantInfo",
-      id,
-      displayMasterData.staffName || "",
-      "",
-      "",
-      "",
-      "",
-      "OK",
-      "スタッフとして重要事項説明を表示",
-      name
-    );
-
     return {
       success: true,
       role: "staff",
@@ -1689,28 +1657,6 @@ function getImportantInfoForLiff_(lineUserId, displayName) {
 
   const staffName = getStaffNameCached_(ss, id);
   if (staffName && staffName !== "未登録") {
-    saveLineUserDirectory_(ss, {
-      source: "重要事項説明LIFF",
-      liffLineUserId: id,
-      displayName: name,
-      detectedStaffName: staffName,
-      checkedAt: new Date()
-    });
-
-    saveLiffOperationLog_(
-      ss,
-      "getImportantInfo",
-      id,
-      staffName,
-      "",
-      "",
-      "",
-      "",
-      "OK",
-      "スタッフとして重要事項説明を表示",
-      name
-    );
-
     return {
       success: true,
       role: "staff",
@@ -1725,28 +1671,6 @@ function getImportantInfoForLiff_(lineUserId, displayName) {
 
   const match = findUserDirectoryMatchByLineOrName_(ss, id, name);
   if (match) {
-    saveLineUserDirectory_(ss, {
-      source: "重要事項説明LIFF",
-      liffLineUserId: id,
-      displayName: name,
-      detectedUserName: match.name || "",
-      checkedAt: new Date()
-    });
-
-    saveLiffOperationLog_(
-      ss,
-      "getImportantInfo",
-      id,
-      "",
-      match.name || "",
-      "",
-      "",
-      "",
-      "OK",
-      "利用者として重要事項説明を表示",
-      name
-    );
-
     return {
       success: true,
       linked: true,

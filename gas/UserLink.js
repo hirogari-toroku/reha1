@@ -155,7 +155,7 @@ function userLinkRequest_(data) {
     // Return only the fields rendered to users; never expose chart or staff-folder URLs.
     const schedules = items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText }));
     const coupon = getCouponDisplayMap_(ss)[normalizeName_(user.name)] || null;
-    logUserLinkStage_(data, "schedules_returned", profile);
+    // Normal viewing is read-only; pending registrations and failures retain logs.
     return { success: true, linked: true, userName: user.name, schedules: schedules, coupon: coupon, message: schedules.length ? "" : "対象期間内の予約はありません。" };
   } catch (error) {
     logUserLinkStage_(data, "request_failed", diagnosticProfile);

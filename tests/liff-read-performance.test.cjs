@@ -31,3 +31,32 @@ test('coupon display uses one values read without rereading headers', () => {
   assert.equal(c.getCouponDisplayMap_(ss)['テスト'].balance, 2);
   assert.equal(reads, 1);
 });
+
+test('known staff initialization and important-info viewing do not write directories or logs', () => {
+  const c = fixture('{}');
+  c.SpreadsheetApp = {getActiveSpreadsheet: () => ({})};
+  c.saveLineUserDirectory_ = c.saveLiffOperationLog_ = () => { throw Error('unexpected write'); };
+  c.getImportantInfoLinks_ = () => ({pageUrl: 'https://example.test/info'});
+  c.getLiffUserListFast_ = () => [];
+  c.findUserDirectoryMatchByLineOrName_ = () => ({name:'user',userId:'test'});
+  for (const cached of [true, false]) {
+    c.getLiffInitDataFromDisplayMaster_ = () => cached ? {staffName:'staff',users:[]} : null;
+    c.getStaffNameCached_ = () => 'staff';
+    assert.equal(c.initLiffApp_('id','name').success, true);
+    assert.equal(c.getImportantInfoForLiff_('id','name').importantInfo.pageUrl, 'https://example.test/info');
+  }
+  c.getStaffNameCached_ = () => '未登録';
+  assert.equal(c.getImportantInfoForLiff_('id','name').role, 'user');
+});
+
+test('unknown important-info visitors remain denied and recorded', () => {
+  const c = fixture('{}'); let writes = 0;
+  c.SpreadsheetApp = {getActiveSpreadsheet: () => ({})};
+  c.getLiffInitDataFromDisplayMaster_ = () => null;
+  c.getStaffNameCached_ = () => '未登録';
+  c.findUserDirectoryMatchByLineOrName_ = () => null;
+  c.saveLineUserDirectory_ = c.saveUnregisteredLiffLogin_ = () => { writes++; };
+  c.getImportantInfoLinks_ = () => {throw Error('must not return links');};
+  assert.equal(c.getImportantInfoForLiff_('id','name').success, false);
+  assert.equal(writes, 2);
+});
