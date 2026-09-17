@@ -125,7 +125,8 @@ function doPost(e) {
         "受信",
         staffName,
         userId,
-        "友だち追加"
+        "友だち追加",
+        displayName
       );
       return;
     }
@@ -137,12 +138,13 @@ function doPost(e) {
     const userId = event.source.userId || "";
     const menuText = String(event.message.text || "").trim();
     if (menuText === "1" || menuText === "4") {
-      const capture = saveRegistrationContact_(ss, userId, getLineDisplayNameFromEvent_(event), {
+      const displayName = getLineDisplayNameFromEvent_(event);
+      const capture = saveRegistrationContact_(ss, userId, displayName, {
         messaging: true, source: "公式LINE登録メニュー", message: menuText
       });
       if (!capture.success) throw new Error(capture.message);
       rawSheet.appendRow([receivedAt, "", userId, event.message.text]);
-      saveLineMessageLog_(ss, receivedAt, "受信", "", userId, event.message.text);
+      saveLineMessageLog_(ss, receivedAt, "受信", "", userId, event.message.text, displayName);
       return;
     }
     const staffName = getStaffNameFromLineEvent_(ss, event);
@@ -168,7 +170,8 @@ function doPost(e) {
       "受信",
       staffName,
       userId,
-      text
+      text,
+      displayName
     );
 
     if (/^[1-4]$/.test(String(text || "").trim())) {
@@ -773,11 +776,11 @@ function notifyAdminUnregisteredLiffLogin_(ss, lineUserId, displayName, action) 
   }
 
   const message =
-    "未登録スタッフがWebアプリへ初回ログインしました。\n\n" +
+    "未登録のLINEアカウントがWebアプリへアクセスしました。\n\n" +
     "LIFF用LINEユーザーID：\n" + targetLineUserId + "\n" +
     "LINE表示名：" + (displayName || "未取得") + "\n" +
     "操作：" + (action || "init") + "\n\n" +
-    "スタッフマスタのD列「LIFF用LINEユーザーID」へ登録してください。";
+    "利用者・ご家族・スタッフのどなたかを確認してください。表示名だけで紐づけず、利用者は利用者LINE連携、スタッフはスタッフマスタで確認・登録してください。";
 
   try {
     const response = UrlFetchApp.fetch("https://api.line.me/v2/bot/message/push", {
@@ -4720,7 +4723,7 @@ function saveUnknownUser_(ss, receivedAt, staffName, userName, text) {
   ]);
 }
 
-function saveLineMessageLog_(ss, dateTime, direction, senderName, lineUserId, message) {
+function saveLineMessageLog_(ss, dateTime, direction, senderName, lineUserId, message, displayName) {
   const sheet = ss.getSheetByName(LINE_MESSAGE_LOG_SHEET_NAME);
 
   if (!sheet) return;
@@ -4730,7 +4733,8 @@ function saveLineMessageLog_(ss, dateTime, direction, senderName, lineUserId, me
     direction,
     senderName,
     lineUserId,
-    message
+    message,
+    displayName || ""
   ]);
 }
 
