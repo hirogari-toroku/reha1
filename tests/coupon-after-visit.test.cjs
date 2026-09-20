@@ -96,6 +96,7 @@ test('LIFF saves the end visit before coupon refresh and returns success with wa
   const events = [];
   const sheet = { appendRow: () => events.push('saved') };
   c.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: () => sheet }) };
+  c.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) };
   c.getStaffName_ = () => 'S';
   c.resolveUserName_ = () => 'A';
   c.normalizeLiffDateText_ = () => '2026-09-16';

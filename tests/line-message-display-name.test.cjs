@@ -24,3 +24,21 @@ test('registration menu records display name with no extra profile fetch or mast
     assert.equal(profiles,1);assert.equal(logs[0][6],'表示名');
   }
 });
+test('unregistered sender cannot impersonate a staff member by matching their LINE display name',()=>{
+  const c=vm.createContext({});vm.runInContext(code,c);
+  const sent=[];
+  c.SpreadsheetApp={getActiveSpreadsheet:()=>({getSheetByName:()=>({appendRow(){}})})};
+  c.ContentService={createTextOutput:()=>({setMimeType(){return this;}}),MimeType:{TEXT:'text'}};
+  c.sendReplyMessages_=messages=>sent.push(...messages);
+  c.getLineDisplayNameFromEvent_=()=>'山田太郎';
+  c.saveLineUserDirectory_=()=>{};
+  c.saveLineMessageLog_=()=>{};
+  c.logStaffLookupFailure_=()=>{};
+  c.getStaffCalendarId_=()=>'';
+  c.getStaffName_=()=>'未登録';
+  c.getStaffNameByDisplayName_=()=>{throw Error('display name must not authorize staff commands')};
+  c.doPost({postData:{contents:JSON.stringify({events:[{type:'message',source:{userId:'impostor-id'},replyToken:'rt',
+    message:{type:'text',text:'山田太郎 開始'}}]})}});
+  assert.equal(sent.length,1);
+  assert.match(sent[0].message,/スタッフが未登録です/);
+});

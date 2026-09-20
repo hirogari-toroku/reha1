@@ -147,9 +147,9 @@ function doPost(e) {
       saveLineMessageLog_(ss, receivedAt, "受信", "", userId, event.message.text, displayName);
       return;
     }
-    const staffName = getStaffNameFromLineEvent_(ss, event);
+    const staffName = getStaffName_(ss, userId);
     const isRegisteredStaff = staffName !== "未登録";
-    const calendarId = getStaffCalendarIdFromLineEvent_(ss, event);
+    const calendarId = getStaffCalendarId_(ss, userId);
     const displayName = getLineDisplayNameFromEvent_(event);
     const text = event.message.text;
     const replyToken = event.replyToken;
@@ -211,11 +211,25 @@ function doPost(e) {
         return;
       }
 
-      if (isRecentDuplicateVisit_(resultSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt)) {
+      const visitLock = LockService.getScriptLock();
+      if (!visitLock.tryLock(5000)) {
+        replyMessages.push({ replyToken, userId, staffName, message: "他の実績登録処理と重複したため、少し待って再送信してください。" });
+        return;
+      }
+      let isDuplicateVisit = false;
+      try {
+        isDuplicateVisit = isRecentDuplicateVisit_(resultSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt);
+        if (!isDuplicateVisit) {
+          visitRows.forEach(row => resultSheet.appendRow(row));
+        }
+      } finally {
+        visitLock.releaseLock();
+      }
+
+      if (isDuplicateVisit) {
         replyMessages.push({ replyToken, userId, staffName, message: "同じ実績が登録済みのため、追加登録しませんでした。" });
         return;
       }
-      visitRows.forEach(row => resultSheet.appendRow(row));
 
       if (
         firstRow[3] === "不明" ||
@@ -1189,6 +1203,17 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     };
   }
 
+  const visitLock = LockService.getScriptLock();
+  if (!visitLock.tryLock(5000)) {
+    const message = "他の実績登録処理と重複したため、少し待って再送信してください。";
+    saveLiffOperationLog_(ss, "recordVisit:lock", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", message);
+    return {
+      success: false,
+      message: message
+    };
+  }
+
+  try {
   if (scheduleId) {
     if (!scheduleSheet) {
       const message = "訪問予定シートがありません。";
@@ -1248,6 +1273,24 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
         message: message
       };
     }
+
+    // 予定シートの状態列は経路(LIFF/LINEメッセージ)によって更新されない場合があるため、
+    // 実際の訪問実績ログ(両経路が書き込む唯一の共通シート)も突き合わせて二重登録を防ぐ。
+    const linkedVisitStatus = getVisitStatusForSchedule_(
+      buildVisitStatusIndex_(resultSheet, staffName, resolvedUserName),
+      parseComparisonDate_(targetDate, now),
+      staffName,
+      resolvedUserName
+    );
+    if (linkedVisitStatus && ((type === "開始" && linkedVisitStatus.hasStart) || (type === "終了" && linkedVisitStatus.hasEnd))) {
+      const message = "この予定の" + type + "実績はすでに別の経路で登録されています。重複登録を防止しました。";
+      saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "重複", message);
+      return {
+        success: false,
+        duplicate: true,
+        message: message
+      };
+    }
   }
 
   if (isRecentDuplicateVisit_(resultSheet, staffName, resolvedUserName, type, targetDate, targetTime, now)) {
@@ -1295,6 +1338,9 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
 
   if (linkedScheduleRow) {
     updateLinkedScheduleVisitStatus_(scheduleSheet, linkedScheduleRow.rowNumber, type, targetDate, targetTime, now);
+  }
+  } finally {
+    visitLock.releaseLock();
   }
 
   const couponUpdate = refreshCouponAfterVisit_(ss, resolvedUserName, type);
@@ -2498,21 +2544,6 @@ function getStaffNameFromLineEvent_(ss, event) {
   return getStaffNameByDisplayName_(ss, displayName);
 }
 
-function getStaffCalendarIdFromLineEvent_(ss, event) {
-  const userId = event && event.source ? event.source.userId || "" : "";
-  const calendarId = getStaffCalendarId_(ss, userId);
-
-  if (calendarId) return calendarId;
-
-  const displayName = getLineDisplayNameFromEvent_(event);
-  if (!displayName) return "";
-
-  const staffName = getStaffNameByDisplayName_(ss, displayName);
-  if (staffName === "未登録") return "";
-
-  return getStaffCalendarIdByStaffName_(ss, staffName);
-}
-
 function getStaffNameByDisplayName_(ss, displayName) {
   const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
   if (!sheet) return "未登録";
@@ -2541,23 +2572,6 @@ function getStaffNameByDisplayName_(ss, displayName) {
   if (uniqueMatches.length === 1) return uniqueMatches[0];
 
   return "未登録";
-}
-
-function getStaffCalendarIdByStaffName_(ss, staffName) {
-  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
-  if (!sheet) return "";
-
-  const values = sheet.getDataRange().getValues();
-  const cols = getStaffMasterColumnMap_(sheet);
-  const target = normalizeName_(staffName);
-
-  for (let i = 1; i < values.length; i++) {
-    if (normalizeName_(values[i][cols.name]) === target) {
-      return values[i][cols.calendarId] || "";
-    }
-  }
-
-  return "";
 }
 
 function getLineDisplayNameFromEvent_(event) {
@@ -4705,8 +4719,7 @@ function isRegisteredStaffUser_(ss, staffName, userName) {
 }
 
 function isTestUserName_(userName) {
-  const normalized = normalizeName_(userName);
-  return normalized === normalizeName_(TEST_USER_NAME) || normalized === "テスト";
+  return normalizeName_(userName) === normalizeName_(TEST_USER_NAME);
 }
 
 function saveUnknownUser_(ss, receivedAt, staffName, userName, text) {

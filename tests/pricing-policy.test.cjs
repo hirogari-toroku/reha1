@@ -188,3 +188,12 @@ test('annual setup requires admin and does not touch existing settings', () => {
   assert.equal(c.adminSetupAnnualRaise_('outsider').denied, true);
   assert.equal(c.setupAnnualRaiseSheetCore_({getSheetByName: () => ({})}).success, true);
 });
+test('test-user exclusion only matches the canonical placeholder name, not any generic "テスト"', () => {
+  const c = context();
+  assert.equal(c.isTestUserName_('テスト利用者'), true);
+  assert.equal(c.isTestUserName_('テスト 利用者'), true);
+  assert.equal(c.isTestUserName_('テスト利用者様'), true);
+  assert.equal(c.isTestUserName_('テスト'), false);
+  assert.equal(c.isTestUserName_('テスト太郎'), false);
+  assert.equal(c.isTestUserName_(''), false);
+});

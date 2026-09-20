@@ -59,23 +59,25 @@ test('staff filter skips other staff before date parsing, default keeps all', ()
 function frontend() {
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const start = html.indexOf('let scheduleLoadPromise = null;');
-  const end = html.indexOf('function loadUserSchedules', start);
-  let resolve, reject;
+  const end = html.indexOf('function logRegisterLiffLogin', start);
+  let resolve, reject, timeoutMs;
   let calls = 0, message = '';
   const c = vm.createContext({
     URLSearchParams, lineUserId: 'staff', GAS_URL: 'https://example.com',
     scheduleItems: [{ id: 'old' }],
     setMessage: value => { message = value; },
     setResourceData: () => {}, renderScheduleList: () => {},
-    jsonp: (url, timeout) => {
-      assert.equal(timeout, 45000);
+    AbortController, clearTimeout,
+    setTimeout: (fn, ms) => { timeoutMs = ms; return setTimeout(fn, ms); },
+    fetch: () => {
       calls++;
       return new Promise((yes, no) => { resolve = yes; reject = no; });
     }
   });
   vm.runInContext(html.slice(start, end), c);
-  return { c, calls: () => calls, message: () => message,
-    resolve: value => resolve(value), reject: error => reject(error) };
+  return { c, calls: () => calls, message: () => message, timeoutMs: () => timeoutMs,
+    resolve: value => resolve({ ok: true, json: async () => value }),
+    reject: error => reject(error) };
 }
 
 test('LINE end completes a LIFF-started visit without changing cancelled states', () => {
@@ -142,6 +144,7 @@ test('concurrent schedule refreshes share one request and can refresh after comp
   const first = f.c.loadSchedules();
   assert.equal(f.c.loadSchedules(), first);
   assert.equal(f.calls(), 1);
+  assert.equal(f.timeoutMs(), 45000);
   f.resolve({ success: true, schedules: [{ id: 'new' }] });
   await first;
   assert.equal(f.c.scheduleItems[0].id, 'new');
