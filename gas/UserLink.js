@@ -102,11 +102,16 @@ function userLinkConfirmAccount(input) {
 
 function userLinkVerify_(token) {
   if (typeof token !== "string" || !token || token.length > 4096) userLinkFail_("LINEでログインし直してください。");
-  const verified = UrlFetchApp.fetch("https://api.line.me/oauth2/v2.1/verify?access_token=" + encodeURIComponent(token), { muteHttpExceptions: true });
+  // Send both LINE API calls together instead of waiting for verify before starting
+  // profile: they are independent reads, and the profile is only trusted below once
+  // verify has also passed.
+  const [verified, response] = UrlFetchApp.fetchAll([
+    { url: "https://api.line.me/oauth2/v2.1/verify?access_token=" + encodeURIComponent(token), muteHttpExceptions: true },
+    { url: "https://api.line.me/v2/profile", headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true }
+  ]);
   if (verified.getResponseCode() !== 200) userLinkFail_("LINEログインの有効期限が切れています。開き直してください。");
   const result = JSON.parse(verified.getContentText());
   if (String(result.client_id) !== USER_LINK_CHANNEL || !(Number(result.expires_in) > 0)) userLinkFail_("LINE認証を確認できません。");
-  const response = UrlFetchApp.fetch("https://api.line.me/v2/profile", { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true });
   if (response.getResponseCode() !== 200) userLinkFail_("LINEプロフィールを確認できません。");
   const profile = JSON.parse(response.getContentText());
   if (!/^U[0-9a-f]{32}$/.test(profile.userId || "")) userLinkFail_("LINE認証を確認できません。");

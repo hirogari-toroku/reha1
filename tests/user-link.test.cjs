@@ -16,7 +16,7 @@ function fixture(){const c=vm.createContext({});for(const name of ['コード.js
   const input={userId:'U002',messagingId:MSG,liffId:LIFF,relation:'母',confirmed:true};return {c,ss,links,master,directory,input};}
 
 test('confirmed mother links captured IDs without modifying masters or historical columns',()=>{
-  const f=fixture();f.c.UrlFetchApp={fetch:()=>{throw Error('must not send');}};f.c.userLinkConfirmAccount(f.input);
+  const f=fixture();f.c.UrlFetchApp={fetch:()=>{throw Error('must not send');},fetchAll:()=>{throw Error('must not send');}};f.c.userLinkConfirmAccount(f.input);
   assert.equal(f.links.rows[1][0],'U002');assert.equal(f.links.rows[1][1],MSG);assert.equal(f.links.rows[1][2],'母');assert.equal(f.links.rows[1][4],LIFF);assert.equal(f.links.rows[1][5],'連携済み');
   assert.equal(f.links.rows[1][6],'old-hash');assert.equal(f.links.rows[1][7],'old-expiry');assert.equal(f.links.rows[1][10],'old-sent');assert.equal(f.links.rows[1][13],'保持するメモ');assert.equal(f.master.writes.length,0);assert.equal(f.c.userLinkResolve_(f.ss,LIFF).id,'U002');
 });
@@ -56,14 +56,23 @@ test('staff do not enter pending queue and retain original initialization',()=>{
 test('common entrance routes unknown IDs without notifying as unregistered staff',()=>{
   const f=fixture();f.c.getLiffInitDataFromDisplayMaster_=()=>null;f.c.liffResponse_=(_,d)=>d;f.c.initLiffApp_=()=>{throw Error('must not log as staff');};assert.equal(f.c.doGet({parameter:{action:'commonInit',lineUserId:OTHER}}).role,'userOrPending');
 });
-test('LINE verification requires correct channel and positive expiry',()=>{
+test('LINE verification sends verify and profile together and requires correct channel and positive expiry',()=>{
+  const okProfile={getResponseCode:()=>200,getContentText:()=>JSON.stringify({userId:LIFF})};
   for(const check of [{code:401,body:{}},{code:200,body:{client_id:'other',expires_in:10}},{code:200,body:{client_id:'2010856600',expires_in:0}}]){
-    const f=fixture();let n=0;f.c.UrlFetchApp={fetch:()=>{n++;return {getResponseCode:()=>check.code,getContentText:()=>JSON.stringify(check.body)};}};assert.throws(()=>f.c.userLinkVerify_('token'));assert.equal(n,1);
+    const f=fixture();let batches=0;
+    f.c.UrlFetchApp={fetchAll:requests=>{batches++;assert.equal(requests.length,2);return [{getResponseCode:()=>check.code,getContentText:()=>JSON.stringify(check.body)},okProfile];}};
+    assert.throws(()=>f.c.userLinkVerify_('token'));
+    assert.equal(batches,1,'一度のfetchAllで両方のLINE APIをまとめて呼ぶ');
   }
-  const f=fixture();let n=0;f.c.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify(++n===1?{client_id:'2010856600',expires_in:100}:{userId:LIFF})})};assert.equal(f.c.userLinkVerify_('token').userId,LIFF);
+  const f2=fixture();
+  f2.c.UrlFetchApp={fetchAll:requests=>{assert.equal(requests.length,2);return [{getResponseCode:()=>200,getContentText:()=>JSON.stringify({client_id:'2010856600',expires_in:100})},{getResponseCode:()=>500,getContentText:()=>'{}'}];}};
+  assert.throws(()=>f2.c.userLinkVerify_('token'),/プロフィール/);
+  const f3=fixture();
+  f3.c.UrlFetchApp={fetchAll:()=>[{getResponseCode:()=>200,getContentText:()=>JSON.stringify({client_id:'2010856600',expires_in:100})},okProfile]};
+  assert.equal(f3.c.userLinkVerify_('token').userId,LIFF);
 });
 test('network exceptions never expose tokens or write pending records',()=>{
-  const f=fixture();f.c.UrlFetchApp={fetch:()=>{throw Error('access_token=secret');}};assert.doesNotMatch(f.c.userLinkRequest_({accessToken:'token'}).message,/secret/);assert.equal(f.links.writes.length,0);
+  const f=fixture();f.c.UrlFetchApp={fetchAll:()=>{throw Error('access_token=secret');}};assert.doesNotMatch(f.c.userLinkRequest_({accessToken:'token'}).message,/secret/);assert.equal(f.links.writes.length,0);
 });
 test('read-only response omits charts and mutation IDs and preserves completed visit text',()=>{
   const f=fixture();f.c.userLinkConfirmAccount(f.input);f.c.userLinkVerify_=()=>({userId:LIFF});f.c.buildVisitStatusIndex_=()=>({});f.c.collectActiveSchedulesForUser_=(_,name)=>{assert.equal(name,'山田太郎');return [{visitDate:'9/20',staffName:'担当',chartUrl:'private',scheduleId:'mutation-id',lastVisitText:'実績'}];};f.c.getCouponDisplayMap_=()=>({'山田太郎':{balance:3}});const r=f.c.userLinkRequest_({accessToken:'valid'});assert.equal(r.success,true);assert.equal(r.coupon.balance,3);assert.equal(r.schedules[0].chartUrl,undefined);assert.equal(r.schedules[0].scheduleId,undefined);assert.equal(r.schedules[0].lastVisitText,'実績');assert.equal(f.master.writes.length,0);
