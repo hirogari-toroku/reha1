@@ -1115,6 +1115,7 @@
     let scheduleSubmitting = false;
     let scheduleActionSubmitting = false;
     let scheduleItems = [];
+    let initialSchedulesLoadedFromCommonInit = false;
     let lastVisitKey = "";
     let lastVisitSentAt = 0;
     let pendingScheduleVisit = null;
@@ -2733,13 +2734,21 @@
         displayName: displayName || ""
       });
 
-      return requestLiffData(params).then(data => {
+      return requestLiffData(params, 45000).then(data => {
         if (data.role === "userOrPending") {
           appMode = "user";
           setupUserModeView();
           return loadUserSchedules();
         }
-        return applyUserListData(Promise.resolve(data));
+        return applyUserListData(Promise.resolve(data)).then(() => {
+          // commonInitは予定も一緒に返す。取得できていれば、起動時のgetSchedules二重通信を省略する。
+          if (data.success && Array.isArray(data.schedules)) {
+            scheduleItems = data.schedules;
+            renderScheduleList();
+            if (scheduleItems.length === 0) setMessage("対象期間内の予定はありません。");
+            initialSchedulesLoadedFromCommonInit = true;
+          }
+        });
       })
         .catch(error => {
           document.getElementById("staff").innerText =
@@ -2918,7 +2927,7 @@
           if (appMode === "important") return loadImportantInfo(profile.displayName);
           return initApp(profile.displayName);
         })
-        .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" || appMode === "important" ? null : loadSchedules(true))
+        .then(() => appMode === "user" || appMode === "register" || appMode === "staff-register" || appMode === "admin" || appMode === "important" || initialSchedulesLoadedFromCommonInit ? null : loadSchedules(true))
         .then(() => {
           if (appMode !== "register" && appMode !== "staff-register") setDisabled(false);
         })

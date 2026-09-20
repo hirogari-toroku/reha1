@@ -49,6 +49,48 @@ test('known staff initialization and important-info viewing do not write directo
   assert.equal(c.getImportantInfoForLiff_('id','name').role, 'user');
 });
 
+test('commonInit returns staff info and schedules together in one call', () => {
+  const c = fixture('{}');
+  let scheduleSheetReads = 0;
+  const scheduleSheet = { marker: 'schedule-sheet' };
+  const ss = {
+    getSheetByName: name => {
+      if (name === '訪問予定') { scheduleSheetReads++; return scheduleSheet; }
+      return { marker: name };
+    }
+  };
+  c.buildVisitStatusIndex_ = (sheet, staffName) => { assert.equal(staffName, 'staff'); return { index: true }; };
+  c.collectActiveSchedulesForStaff_ = (sheet, staffName, index) => {
+    assert.equal(sheet, scheduleSheet);
+    assert.equal(staffName, 'staff');
+    assert.deepEqual(index, { index: true });
+    return [{ userName: 'A' }];
+  };
+  c.enrichLiffScheduleItemsWithUserResources_ = () => {};
+
+  const displayMasterData = { staffName: 'staff', staffResources: { folder: 'x' }, importantInfo: {}, users: ['A'] };
+  const result = c.initLiffAppWithSchedules_(ss, 'id', 'name', displayMasterData);
+
+  assert.equal(result.success, true);
+  assert.equal(result.staffName, 'staff');
+  assert.deepEqual(result.staffResources, { folder: 'x' });
+  assert.deepEqual(result.users, ['A']);
+  assert.deepEqual(result.schedules, [{ userName: 'A' }]);
+  assert.equal(scheduleSheetReads, 1, '予定シートは1回だけ読む');
+});
+
+test('commonInit skips schedule reads entirely when the staff cannot be resolved', () => {
+  const c = fixture('{}');
+  c.SpreadsheetApp = { getActiveSpreadsheet: () => ({}) };
+  c.saveLineUserDirectory_ = () => {};
+  c.saveUnregisteredLiffLogin_ = () => {};
+  c.getStaffNameCached_ = () => '未登録';
+  const ss = { getSheetByName: () => { throw Error('must not read any sheet when staff is unregistered'); } };
+  const result = c.initLiffAppWithSchedules_(ss, 'id', 'name', null);
+  assert.equal(result.success, false);
+  assert.equal(result.schedules.length, 0);
+});
+
 test('unknown important-info visitors remain denied and recorded', () => {
   const c = fixture('{}'); let writes = 0;
   c.SpreadsheetApp = {getActiveSpreadsheet: () => ({})};

@@ -163,3 +163,51 @@ test('silent initial failures are visible and keep existing schedules with stale
   assert.match(f.message(), /timeout/);
   assert.match(f.message(), /更新前/);
 });
+
+function initAppFixture() {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const start = html.indexOf('async function requestLiffData');
+  const end = html.indexOf('function logLogin', start);
+  let resolve, reject;
+  const rendered = { calls: 0 };
+  const select = { innerHTML: '', appendChild() {} };
+  const staffLabel = { innerText: '' };
+  const elements = { userName: select, staff: staffLabel };
+  const c = vm.createContext({
+    URLSearchParams, lineUserId: 'staff', GAS_URL: 'https://example.com',
+    scheduleItems: [], initialSchedulesLoadedFromCommonInit: false,
+    document: {
+      getElementById: id => elements[id] || { innerText: '', classList: { add(){}, remove(){} } },
+      createElement: () => ({})
+    },
+    setMessage: () => {}, setResourceData: () => {}, setDisabled: () => {},
+    AbortController, clearTimeout, setTimeout,
+    fetch: () => new Promise((yes, no) => { resolve = yes; reject = no; })
+  });
+  vm.runInContext(html.slice(start, end), c);
+  // The extracted slice also defines the real renderScheduleList; override it after
+  // evaluation so a plain top-level function declaration doesn't shadow this mock.
+  c.renderScheduleList = () => { rendered.calls++; };
+  return { c, rendered,
+    resolve: value => resolve({ ok: true, json: async () => value }),
+    reject: error => reject(error) };
+}
+
+test('commonInit success renders schedules immediately and flags the extra getSchedules call unnecessary', async () => {
+  const f = initAppFixture();
+  const request = f.c.initApp('スタッフ');
+  f.resolve({ success: true, staffName: 'S', users: ['A'], schedules: [{ userName: 'A' }] });
+  await request;
+  assert.deepEqual(f.c.scheduleItems, [{ userName: 'A' }]);
+  assert.equal(f.rendered.calls, 1);
+  assert.equal(f.c.initialSchedulesLoadedFromCommonInit, true);
+});
+
+test('commonInit without schedule data leaves the flag false so the caller still refreshes separately', async () => {
+  const f = initAppFixture();
+  const request = f.c.initApp('スタッフ');
+  f.resolve({ success: false, message: '未登録' });
+  await request;
+  assert.equal(f.rendered.calls, 0);
+  assert.equal(f.c.initialSchedulesLoadedFromCommonInit, false);
+});

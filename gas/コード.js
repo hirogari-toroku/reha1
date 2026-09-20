@@ -389,10 +389,11 @@ function doGet(e) {
   if (action === "commonInit") {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const id = String(e.parameter.lineUserId || "").trim();
-    if (!getLiffInitDataFromDisplayMaster_(id) && getStaffNameCached_(ss, id) === "未登録") {
+    const displayMasterData = getLiffInitDataFromDisplayMaster_(id);
+    if (!displayMasterData && getStaffNameCached_(ss, id) === "未登録") {
       return liffResponse_(e, { success: false, role: "userOrPending" });
     }
-    return liffResponse_(e, initLiffApp_(id, e.parameter.displayName));
+    return liffResponse_(e, initLiffAppWithSchedules_(ss, id, e.parameter.displayName, displayMasterData));
   }
 
   if (action === "logLogin") {
@@ -691,6 +692,38 @@ function initLiffApp_(lineUserId, displayName) {
     displayName: displayName || "",
     message: ""
   };
+}
+
+// commonInitからスタッフ情報と初回予定を1回の通信でまとめて返す。
+// displayMasterDataは呼び出し元(doGet)がすでに取得済みのため、ここでは再取得しない。
+function initLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData) {
+  const base = displayMasterData
+    ? {
+        success: true,
+        staffName: displayMasterData.staffName,
+        staffResources: displayMasterData.staffResources || {},
+        importantInfo: displayMasterData.importantInfo || {},
+        users: displayMasterData.users,
+        lineUserId: lineUserId || "",
+        displayName: displayName || "",
+        message: ""
+      }
+    : initLiffApp_(lineUserId, displayName);
+
+  if (!base.success) {
+    return Object.assign({ schedules: [] }, base);
+  }
+
+  const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!scheduleSheet) {
+    return Object.assign({}, base, { schedules: [], message: "訪問予定シートがありません。" });
+  }
+
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), base.staffName);
+  const schedules = collectActiveSchedulesForStaff_(scheduleSheet, base.staffName, visitStatusIndex);
+  enrichLiffScheduleItemsWithUserResources_(ss, schedules);
+
+  return Object.assign({}, base, { schedules: schedules });
 }
 
 function logUserLiffLogin_(lineUserId, displayName) {
