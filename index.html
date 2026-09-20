@@ -786,6 +786,22 @@
       color: #a61b12;
     }
 
+    .admin-action-row button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .admin-toolbox-details {
+      margin-top: 10px;
+    }
+
+    .admin-toolbox-details summary {
+      color: #52606d;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
     .admin-relationship-header {
       display: flex;
       justify-content: space-between;
@@ -1020,16 +1036,21 @@
           フォーム回答、LINE情報、ID列、LIFF表示用マスタをまとめて整えます。紐づけ確認の前に押すと、候補が最新になります。
         </div>
         <div class="admin-action-row">
-          <button type="button" onclick="runAdminAction('adminRunDataSetupAll')">一括実行</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminImportUserQuestionnaire')">利用者アンケート取込</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminApplyLineUsers')">LINE情報を反映</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminSetupIds')">ID列を整える</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminUpdateLiffDisplayMaster')">LIFF表示更新</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminImportStaffBankQuestionnaire')">口座登録取込</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminRunCouponAll')">回数券更新</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminSetupStaffQuestionnaireAutoImportTrigger')">スタッフ登録トリガー設定</button>
-          <button type="button" class="secondary" onclick="runAdminAction('adminSetupUserQuestionnaireAutoImportTrigger')">利用者登録トリガー設定</button>
+          <button type="button" onclick="runAdminAction('adminRunDataSetupAll', null, this)">一括実行</button>
         </div>
+        <details class="admin-toolbox-details">
+          <summary>個別実行を表示（通常は不要です）</summary>
+          <div class="admin-action-row">
+            <button type="button" class="secondary" onclick="runAdminAction('adminImportUserQuestionnaire', null, this)">利用者アンケート取込</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminApplyLineUsers', null, this)">LINE情報を反映</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminSetupIds', null, this)">ID列を整える</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminUpdateLiffDisplayMaster', null, this)">LIFF表示更新</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminImportStaffBankQuestionnaire', null, this)">口座登録取込</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminRunCouponAll', null, this)">回数券更新</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminSetupStaffQuestionnaireAutoImportTrigger', null, this)">スタッフ登録トリガー設定</button>
+            <button type="button" class="secondary" onclick="runAdminAction('adminSetupUserQuestionnaireAutoImportTrigger', null, this)">利用者登録トリガー設定</button>
+          </div>
+        </details>
       </div>
       <div class="admin-section-title">代理表示テスト</div>
       <div class="admin-toolbox">
@@ -2330,7 +2351,7 @@
       return chip;
     }
 
-    function runAdminAction(action, extraParams) {
+    function runAdminAction(action, extraParams, buttonEl) {
       if (!lineUserId) return;
 
       const params = new URLSearchParams({
@@ -2342,11 +2363,23 @@
         params.set(key, extraParams[key]);
       });
 
-      setMessage("処理中...");
+      const originalLabel = buttonEl ? buttonEl.textContent : "";
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.textContent = "処理中...";
+      }
+      const showMessage = text => {
+        setMessage(text);
+        const messageEl = document.getElementById("message");
+        if (messageEl && messageEl.scrollIntoView) {
+          messageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      };
+      showMessage("処理中...");
 
       jsonp(GAS_URL + "?" + params.toString())
         .then(data => {
-          setMessage(data.message || "");
+          showMessage(data.message || "");
           if (data.assignmentStartChecklist) {
             renderAssignmentStartChecklist(
               document.getElementById("adminAssignmentStartPanel"),
@@ -2356,7 +2389,13 @@
           }
           return loadAdminDashboard(true);
         })
-        .catch(error => setMessage("処理に失敗しました：" + error.message));
+        .catch(error => showMessage("処理に失敗しました：" + error.message))
+        .finally(() => {
+          if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = originalLabel;
+          }
+        });
     }
 
     function renderScheduleList() {
