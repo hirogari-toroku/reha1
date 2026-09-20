@@ -1794,7 +1794,7 @@
 
       if (!silent) setMessage("管理情報を読み込み中...");
 
-      return jsonp(GAS_URL + "?" + params.toString(), 45000)
+      return requestLiffData(params, 45000)
         .then(data => {
           renderAdminDashboard(data);
           if (!silent) setMessage(data.message || "");
