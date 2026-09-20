@@ -719,7 +719,7 @@ function initLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterDat
     return Object.assign({}, base, { schedules: [], message: "訪問予定シートがありません。" });
   }
 
-  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), base.staffName);
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), base.staffName, undefined, new Date(getLiffScheduleDateWindow_().startTime));
   const schedules = collectActiveSchedulesForStaff_(scheduleSheet, base.staffName, visitStatusIndex);
   enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
@@ -1310,7 +1310,7 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     // 予定シートの状態列は経路(LIFF/LINEメッセージ)によって更新されない場合があるため、
     // 実際の訪問実績ログ(両経路が書き込む唯一の共通シート)も突き合わせて二重登録を防ぐ。
     const linkedVisitStatus = getVisitStatusForSchedule_(
-      buildVisitStatusIndex_(resultSheet, staffName, resolvedUserName),
+      buildVisitStatusIndex_(resultSheet, staffName, resolvedUserName, parseComparisonDate_(targetDate, now)),
       parseComparisonDate_(targetDate, now),
       staffName,
       resolvedUserName
@@ -1646,7 +1646,7 @@ function getSchedulesForLiff_(lineUserId) {
     };
   }
 
-  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), staffName);
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), staffName, undefined, new Date(getLiffScheduleDateWindow_().startTime));
   const schedules = collectActiveSchedulesForStaff_(scheduleSheet, staffName, visitStatusIndex);
   enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
@@ -1689,7 +1689,7 @@ function getUserSchedulesForLiff_(lineUserId, displayName) {
   }
 
   ensureScheduleStatusColumns_(scheduleSheet);
-  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), undefined, undefined, new Date(getLiffScheduleDateWindow_().startTime));
   const schedules = collectActiveSchedulesForUser_(scheduleSheet, match.name, visitStatusIndex);
   enrichLiffScheduleItemsWithUserResources_(ss, schedules);
 
@@ -2216,13 +2216,48 @@ function isCancelledScheduleStatus_(status) {
   return /キャンセル|取消|中止/.test(String(status || "").trim());
 }
 
-function buildVisitStatusIndex_(sheet, targetStaffName, targetUserName) {
+const VISIT_RESULT_SCAN_CHUNK_ROWS = 500;
+const VISIT_RESULT_SCAN_SAFETY_DAYS = 30;
+
+// 訪問実績は記録時にappendRowされるため、行の並びはおおむね日付順になる。
+// earliestDateが指定された場合、その日付より十分前(安全余裕30日)まで遡って
+// 一致する行が見つかった時点で読み取り開始行を打ち切り、シートが育つほど
+// 遅くなる全行読取りを避ける。並び順の多少の乱れは安全余裕で吸収する。
+// earliestDate省略時は従来通り全行を読む(履歴全体が必要な呼び出し元向け)。
+function findVisitResultReadStartRow_(sheet, earliestDate) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2 || !earliestDate) return 2;
+
+  const cutoffTime = earliestDate.getTime() - VISIT_RESULT_SCAN_SAFETY_DAYS * 24 * 60 * 60 * 1000;
+  let rowEnd = lastRow;
+
+  while (rowEnd >= 2) {
+    const rowStart = Math.max(2, rowEnd - VISIT_RESULT_SCAN_CHUNK_ROWS + 1);
+    const count = rowEnd - rowStart + 1;
+    const dates = sheet.getRange(rowStart, 1, count, 1).getValues();
+
+    for (let i = count - 1; i >= 0; i--) {
+      const date = dates[i][0];
+      if (Object.prototype.toString.call(date) === "[object Date]" && !isNaN(date.getTime()) && date.getTime() < cutoffTime) {
+        return rowStart + i + 1;
+      }
+    }
+
+    rowEnd = rowStart - 1;
+  }
+
+  return 2;
+}
+
+function buildVisitStatusIndex_(sheet, targetStaffName, targetUserName, earliestDate) {
   const index = {};
   if (!sheet || sheet.getLastRow() < 2) return index;
 
   const targetStaff = targetStaffName ? normalizeName_(targetStaffName) : "";
   const targetUser = targetUserName ? normalizeName_(targetUserName) : "";
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 8)).getValues();
+  const startRow = findVisitResultReadStartRow_(sheet, earliestDate);
+  const lastRow = sheet.getLastRow();
+  const values = sheet.getRange(startRow, 1, lastRow - startRow + 1, Math.min(sheet.getLastColumn(), 8)).getValues();
 
   values.forEach(row => {
     if (targetStaff && normalizeName_(row[2]) !== targetStaff) return;
@@ -8384,7 +8419,7 @@ function adminPreviewSchedulesFromLiff_(lineUserId, displayName, targetType, tar
   }
 
   ensureScheduleStatusColumns_(scheduleSheet);
-  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME));
+  const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), undefined, undefined, new Date(getLiffScheduleDateWindow_().startTime));
   const schedules = normalizedType === "staff"
     ? collectActiveSchedulesForStaff_(scheduleSheet, target.name, visitStatusIndex)
     : collectActiveSchedulesForUser_(scheduleSheet, target.name, visitStatusIndex);

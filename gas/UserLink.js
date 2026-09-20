@@ -155,7 +155,7 @@ function userLinkRequest_(data) {
     }
     const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
     if (!scheduleSheet) userLinkFail_("訪問予定を確認できません。管理者へご連絡ください。");
-    const visits = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), "", user.name);
+    const visits = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), "", user.name, new Date(getLiffScheduleDateWindow_().startTime));
     const items = collectActiveSchedulesForUser_(scheduleSheet, user.name, visits);
     // Return only the fields rendered to users; never expose chart or staff-folder URLs.
     const schedules = items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText }));
