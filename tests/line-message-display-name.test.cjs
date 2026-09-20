@@ -34,7 +34,6 @@ test('unregistered sender cannot impersonate a staff member by matching their LI
   c.saveLineUserDirectory_=()=>{};
   c.saveLineMessageLog_=()=>{};
   c.logStaffLookupFailure_=()=>{};
-  c.getStaffCalendarId_=()=>'';
   c.getStaffName_=()=>'未登録';
   c.getStaffNameByDisplayName_=()=>{throw Error('display name must not authorize staff commands')};
   c.doPost({postData:{contents:JSON.stringify({events:[{type:'message',source:{userId:'impostor-id'},replyToken:'rt',

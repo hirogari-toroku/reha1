@@ -163,7 +163,6 @@ test('LINE-message visit registration holds a script lock around the duplicate-c
   c.ContentService = { createTextOutput: () => ({ setMimeType() { return this; } }), MimeType: { TEXT: 'text' } };
   c.sendReplyMessages_ = () => {};
   c.getStaffName_ = () => 'S';
-  c.getStaffCalendarId_ = () => '';
   c.getLineDisplayNameFromEvent_ = () => 'S';
   c.saveLineUserDirectory_ = () => {};
   c.isRegisteredStaffUser_ = () => true;

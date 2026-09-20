@@ -65,7 +65,6 @@ const STAFF_COL_NAME = 0;
 const STAFF_COL_LINE_DISPLAY_NAME = 1;
 const STAFF_COL_LINE_USER_ID = 2;
 const STAFF_COL_LIFF_LINE_USER_ID = 3;
-const STAFF_COL_CALENDAR_ID = 4;
 const STAFF_COL_BANK_CODE = 5;
 const STAFF_COL_BRANCH_CODE = 6;
 const STAFF_COL_ACCOUNT_TYPE = 7;
@@ -149,7 +148,6 @@ function doPost(e) {
     }
     const staffName = getStaffName_(ss, userId);
     const isRegisteredStaff = staffName !== "未登録";
-    const calendarId = getStaffCalendarId_(ss, userId);
     const displayName = getLineDisplayNameFromEvent_(event);
     const text = event.message.text;
     const replyToken = event.replyToken;
@@ -298,17 +296,6 @@ function doPost(e) {
           return;
         }
 
-        let calendarStatus = "";
-        let eventId = "";
-
-        if (calendarId) {
-          const result = createCalendarEvent_(calendarId, row[2], row[3]);
-          calendarStatus = result.status;
-          eventId = result.eventId;
-        } else {
-          calendarStatus = "カレンダーID未登録";
-        }
-
         scheduleSheet.appendRow([
           row[0],
           row[1],
@@ -316,8 +303,8 @@ function doPost(e) {
           row[3],
           row[4],
           row[5],
-          calendarStatus,
-          eventId
+          "",
+          ""
         ]);
 
         registeredDates.push(row[3]);
@@ -1410,7 +1397,6 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   const staffName = getStaffName_(ss, lineUserId);
-  const calendarId = getStaffCalendarId_(ss, lineUserId);
   const now = new Date();
 
   if (!scheduleSheet) {
@@ -1561,17 +1547,6 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
       return;
     }
 
-    let calendarStatus = "";
-    let eventId = "";
-
-    if (calendarId) {
-      const result = createCalendarEvent_(calendarId, resolvedUserName, dateText);
-      calendarStatus = result.status;
-      eventId = result.eventId;
-    } else {
-      calendarStatus = "カレンダーID未登録";
-    }
-
     scheduleSheet.appendRow([
       now,
       staffName,
@@ -1579,8 +1554,8 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
       dateText,
       "LIFF予定登録：" + dates,
       lineUserId,
-      calendarStatus,
-      eventId,
+      "",
+      "",
       "予定",
       now,
       ""
@@ -1821,17 +1796,11 @@ function cancelScheduleFromLiff_(lineUserId, scheduleId) {
     };
   }
 
-  const calendarId = getStaffCalendarId_(ss, lineUserId);
-  const calendarStatus = cancelCalendarEvent_(calendarId, row.eventId);
-
   scheduleSheet.getRange(row.rowNumber, 9, 1, 3).setValues([[
     "キャンセル",
     now,
-    "LIFFキャンセル：" + row.userName + " " + row.visitDate + " / " + calendarStatus
+    "LIFFキャンセル：" + row.userName + " " + row.visitDate
   ]]);
-  if (calendarStatus) {
-    scheduleSheet.getRange(row.rowNumber, 7).setValue(calendarStatus);
-  }
 
   const message = "予定をキャンセルしました。利用者：" + row.userName + " 様、日付：" + row.visitDate;
 
@@ -1858,7 +1827,6 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   const staffName = getStaffName_(ss, lineUserId);
-  const calendarId = getStaffCalendarId_(ss, lineUserId);
   const now = new Date();
 
   if (!scheduleSheet) {
@@ -1930,15 +1898,13 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
     };
   }
 
-  const calendarResult = updateCalendarEvent_(calendarId, targetRow.eventId, resolvedUserName, newDate);
-
   scheduleSheet.getRange(targetRow.rowNumber, 3, 1, 9).setValues([[
     resolvedUserName,
     newDate,
     "LIFF予定変更：" + targetRow.userName + " " + targetRow.visitDate + " → " + resolvedUserName + " " + newDate,
     lineUserId,
-    calendarResult.status,
-    calendarResult.eventId,
+    "",
+    "",
     "予定",
     now,
     "LIFF変更：" + targetRow.userName + " " + targetRow.visitDate + " → " + resolvedUserName + " " + newDate
@@ -2002,7 +1968,6 @@ function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
       visitDateValue: formatScheduleDateValueForLiff_(visitDate, row[0]),
       status: resolvedStatus,
       registeredAt: formatComparisonDateTime_(row[0]),
-      calendarStatus: String(row[6] || ""),
       updatedAt: formatComparisonDateTime_(row[9]) || formatLatestVisitRegisteredAtForLiff_(visitStatus),
       lastVisitText: String(row[10] || "") || formatVisitStatusTextForLiff_(visitStatus)
     });
@@ -2527,7 +2492,6 @@ function getStaffMasterColumnMap_(sheet) {
     lineDisplayName: getColumnIndex_(headerMap, ["LINE表示名"], STAFF_COL_LINE_DISPLAY_NAME),
     lineUserId: getColumnIndex_(headerMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], STAFF_COL_LINE_USER_ID),
     liffLineUserId: getColumnIndex_(headerMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], STAFF_COL_LIFF_LINE_USER_ID),
-    calendarId: getColumnIndex_(headerMap, ["カレンダーID", "GoogleカレンダーID"], STAFF_COL_CALENDAR_ID),
     bankCode: getColumnIndex_(headerMap, ["銀行コード"], STAFF_COL_BANK_CODE),
     branchCode: getColumnIndex_(headerMap, ["支店番号"], STAFF_COL_BRANCH_CODE),
     accountType: getColumnIndex_(headerMap, ["預金種目"], STAFF_COL_ACCOUNT_TYPE),
@@ -2710,44 +2674,6 @@ function getLineDisplayNameFromEvent_(event) {
   }
 }
 
-/**
- * カレンダーIDの取得
- */
-function getStaffCalendarId_(ss, userId) {
-  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
-  if (!sheet) return "";
-
-  const values = sheet.getDataRange().getValues();
-  const cols = getStaffMasterColumnMap_(sheet);
-  const targetUserId = String(userId || "").trim();
-
-  if (!targetUserId) return "";
-
-  const directMatchedRow = findRowByAnyCellValue_(values, targetUserId);
-  if (directMatchedRow) return directMatchedRow[cols.calendarId] || "";
-
-  const lineUserIdCols = getUniqueIndexes_([
-    cols.lineUserId,
-    cols.liffLineUserId,
-    STAFF_COL_LINE_USER_ID,
-    STAFF_COL_LIFF_LINE_USER_ID
-  ]);
-
-  for (let i = 1; i < values.length; i++) {
-    const calendarId = values[i][cols.calendarId];
-
-    const matched = lineUserIdCols.some(col => {
-      return String(values[i][col] || "").trim() === targetUserId;
-    });
-
-    if (matched) {
-      return calendarId || "";
-    }
-  }
-
-  return "";
-}
-
 function logStaffLookupFailure_(ss, userId, text) {
   const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
   const targetUserId = String(userId || "").trim();
@@ -2830,128 +2756,6 @@ function getUniqueIndexes_(indexes) {
   });
 
   return result;
-}
-
-/**
- * Googleカレンダー予定登録（重複防止機能付き）
- */
-function createCalendarEvent_(calendarId, userName, dateText) {
-  try {
-    const calendar = CalendarApp.getCalendarById(calendarId);
-
-    if (!calendar) {
-      return {
-        status: "カレンダー取得失敗",
-        eventId: ""
-      };
-    }
-
-    const date = convertDateTextToDate_(dateText);
-    const title = userName + "様 訪問";
-
-    const events = calendar.getEventsForDay(date);
-    const duplicate = events.some(event => event.getTitle() === title);
-
-    if (duplicate) {
-      return {
-        status: "重複のため未登録",
-        eventId: ""
-      };
-    }
-
-    const event = calendar.createAllDayEvent(title, date, {
-      description: "LINE予定連絡から自動登録"
-    });
-
-    return {
-      status: "登録済",
-      eventId: event.getId()
-    };
-
-  } catch (error) {
-    return {
-      status: "エラー：" + error.message,
-      eventId: ""
-    };
-  }
-}
-
-function updateCalendarEvent_(calendarId, eventId, userName, dateText) {
-  if (!calendarId) {
-    return {
-      status: "カレンダーID未登録",
-      eventId: eventId || ""
-    };
-  }
-
-  try {
-    const calendar = CalendarApp.getCalendarById(calendarId);
-
-    if (!calendar) {
-      return {
-        status: "カレンダー取得失敗",
-        eventId: eventId || ""
-      };
-    }
-
-    const date = convertDateTextToDate_(dateText);
-    const title = userName + "様 訪問";
-    let event = eventId ? calendar.getEventById(eventId) : null;
-
-    if (event) {
-      event.setTitle(title);
-      event.setAllDayDate(date);
-      return {
-        status: "変更済",
-        eventId: event.getId()
-      };
-    }
-
-    const created = createCalendarEvent_(calendarId, userName, dateText);
-    return {
-      status: "再登録：" + created.status,
-      eventId: created.eventId
-    };
-
-  } catch (error) {
-    return {
-      status: "変更エラー：" + error.message,
-      eventId: eventId || ""
-    };
-  }
-}
-
-function cancelCalendarEvent_(calendarId, eventId) {
-  if (!calendarId) return "カレンダーID未登録";
-  if (!eventId) return "カレンダー予定IDなし";
-
-  try {
-    const calendar = CalendarApp.getCalendarById(calendarId);
-
-    if (!calendar) return "カレンダー取得失敗";
-
-    const event = calendar.getEventById(eventId);
-
-    if (!event) return "カレンダー予定なし";
-
-    event.deleteEvent();
-    return "キャンセル済";
-
-  } catch (error) {
-    return "キャンセルエラー：" + error.message;
-  }
-}
-
-function convertDateTextToDate_(dateText) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const parts = dateText.split("/");
-
-  return new Date(
-    year,
-    Number(parts[0]) - 1,
-    Number(parts[1])
-  );
 }
 
 /**
