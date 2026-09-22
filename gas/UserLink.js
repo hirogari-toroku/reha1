@@ -160,8 +160,14 @@ function userLinkRequest_(data) {
     // Return only the fields rendered to users; never expose chart or staff-folder URLs.
     const schedules = items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText }));
     const coupon = getCouponDisplayMap_(ss)[normalizeName_(user.name)] || null;
+    let firstVisitOffer = null;
+    try {
+      firstVisitOffer = getFirstVisitOfferForUser_(ss, user);
+    } catch (offerError) {
+      firstVisitOffer = null;
+    }
     // Normal viewing is read-only; pending registrations and failures retain logs.
-    return { success: true, linked: true, userName: user.name, schedules: schedules, coupon: coupon, message: schedules.length ? "" : "対象期間内の予約はありません。" };
+    return { success: true, linked: true, userName: user.name, schedules: schedules, coupon: coupon, firstVisitOffer: firstVisitOffer, message: schedules.length || firstVisitOffer ? "" : "対象期間内の予約はありません。" };
   } catch (error) {
     logUserLinkStage_(data, "request_failed", diagnosticProfile);
     return { success: false, schedules: [], message: error.userLinkSafe ? error.message : "通信または連携処理に失敗しました。時間をおいて再度お試しください。" };

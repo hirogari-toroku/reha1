@@ -743,6 +743,56 @@
       font-weight: 800;
     }
 
+    .first-visit-editor {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid #c9f2d9;
+      border-radius: 8px;
+      background: #f5fff8;
+    }
+
+    .first-visit-editor button {
+      grid-column: 1 / -1;
+      min-height: 42px;
+      border: 1px solid #06c755;
+      border-radius: 8px;
+      background: #06c755;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .first-visit-offer {
+      border-color: #06c755;
+      background: #f5fff8;
+    }
+
+    .first-visit-options {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .first-visit-options button {
+      min-height: 48px;
+      border: 1px solid #06c755;
+      border-radius: 8px;
+      background: #fff;
+      color: #1f2933;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .first-visit-options button:disabled {
+      opacity: 0.6;
+    }
+
+    .admin-field input,
     .admin-field select {
       width: 100%;
       height: 42px;
@@ -857,7 +907,8 @@
         grid-template-columns: 1fr 1fr;
       }
 
-      .admin-link-editor {
+      .admin-link-editor,
+      .first-visit-editor {
         grid-template-columns: 1fr;
       }
 
@@ -1093,6 +1144,31 @@
         </div>
         <button type="button" onclick="addAdminRelationship()">追加</button>
       </div>
+      <div class="admin-section-title">初回訪問の候補日</div>
+      <div class="first-visit-editor">
+        <div class="admin-field">
+          <label for="firstVisitUser">利用者</label>
+          <select id="firstVisitUser"></select>
+        </div>
+        <div class="admin-field">
+          <label for="firstVisitStaff">担当スタッフ</label>
+          <select id="firstVisitStaff"></select>
+        </div>
+        <div class="admin-field">
+          <label for="firstVisitOption1">候補1</label>
+          <input type="datetime-local" id="firstVisitOption1" step="900">
+        </div>
+        <div class="admin-field">
+          <label for="firstVisitOption2">候補2（任意）</label>
+          <input type="datetime-local" id="firstVisitOption2" step="900">
+        </div>
+        <div class="admin-field">
+          <label for="firstVisitOption3">候補3（任意）</label>
+          <input type="datetime-local" id="firstVisitOption3" step="900">
+        </div>
+        <button type="button" id="firstVisitCreateButton" onclick="createFirstVisitCandidates(this)">候補日を作成して利用者へLINE送信</button>
+      </div>
+      <div id="firstVisitCandidateList" class="admin-target-list"></div>
       <div id="adminAssignmentStartPanel" class="admin-start-panel hidden"></div>
       <div class="admin-section-title">スタッフと利用者のつながり</div>
       <div id="adminRelationshipList" class="admin-relationship-list"></div>
@@ -1605,6 +1681,7 @@
 
     let userLinkLoadPromise = null;
     let userCoupon = null;
+    let userFirstVisitOffer = null;
 
     function loadUserSchedules(silent) {
       if (!lineUserId) return Promise.resolve();
@@ -1625,6 +1702,7 @@
           scheduleItems = data.schedules || [];
           reportLiffStage(data.pending ? "user_pending" : data.success ? "user_shown" : "user_rejected");
           userCoupon = data.success ? data.coupon || null : null;
+          userFirstVisitOffer = data.success ? data.firstVisitOffer || null : null;
           setResourceData(data && data.success ? data : {});
           if (data.userName) {
             document.getElementById("staff").innerText = "利用者：" + data.userName + " 様";
@@ -1638,6 +1716,7 @@
         .catch(error => {
           scheduleItems = [];
           userCoupon = null;
+          userFirstVisitOffer = null;
           setResourceData({});
           renderUserScheduleList();
           setMessage("予約の取得に失敗しました：" + error.message);
@@ -1645,6 +1724,54 @@
           setMessage("予約の取得に失敗しました。開き直しても続く場合は、この画面をお知らせください。受付番号：" + liffTraceId);
         }).finally(() => { clearTimeout(timer); userLinkLoadPromise = null; });
       return userLinkLoadPromise;
+    }
+
+    function buildFirstVisitOfferCard(offer) {
+      const card = document.createElement("div");
+      card.className = "schedule-card first-visit-offer";
+      const title = document.createElement("div");
+      title.className = "schedule-card-title";
+      title.textContent = "初回訪問の日時をお選びください";
+      card.appendChild(title);
+      const note = document.createElement("div");
+      note.textContent = "担当：" + (offer.staffName || "") + "　ご都合のよい日時を1つ押してください。どれも難しい場合は公式LINEでお知らせください。";
+      card.appendChild(note);
+      const list = document.createElement("div");
+      list.className = "first-visit-options";
+      (offer.options || []).forEach(option => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = option.label;
+        button.onclick = () => selectFirstVisitOption(offer.candidateId, option, list);
+        list.appendChild(button);
+      });
+      card.appendChild(list);
+      return card;
+    }
+
+    function selectFirstVisitOption(candidateId, option, list) {
+      if (!window.confirm("初回訪問を「" + option.label + "」で予約します。よろしいですか？")) return;
+      const buttons = Array.from(list.querySelectorAll("button"));
+      buttons.forEach(button => { button.disabled = true; });
+      setMessage("予約しています...");
+      fetch(GAS_URL, {
+        method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        credentials: "omit", referrerPolicy: "no-referrer",
+        body: JSON.stringify({ action: "userSelectFirstVisit", accessToken: liff.getAccessToken(), candidateId: candidateId, optionIndex: option.index })
+      }).then(response => { if (!response.ok) throw new Error("通信に失敗しました。"); return response.json(); })
+        .then(data => {
+          if (!data.success) {
+            buttons.forEach(button => { button.disabled = false; });
+            setMessage(data.message || "予約できませんでした。");
+            return;
+          }
+          userFirstVisitOffer = null;
+          return loadUserSchedules(true).then(() => setMessage(data.message || "予約しました。"));
+        })
+        .catch(error => {
+          buttons.forEach(button => { button.disabled = false; });
+          setMessage("予約できませんでした：" + error.message);
+        });
     }
 
     function loadImportantInfo(displayName) {
@@ -1861,6 +1988,11 @@
       fillAdminSelect(previewStaff, adminStaffOptions, previewStaff ? previewStaff.value : "", "スタッフを選択");
       fillAdminSelect(previewUser, adminUserOptions, previewUser ? previewUser.value : "", "利用者を選択");
       handleAdminPreviewTypeChange();
+      const firstVisitUser = document.getElementById("firstVisitUser");
+      const firstVisitStaff = document.getElementById("firstVisitStaff");
+      fillAdminSelect(firstVisitUser, adminUserOptions, firstVisitUser ? firstVisitUser.value : "", "利用者を選択");
+      fillAdminSelect(firstVisitStaff, adminStaffOptions, firstVisitStaff ? firstVisitStaff.value : "", "スタッフを選択");
+      renderFirstVisitCandidates(data.firstVisitCandidates || []);
 
       document.getElementById("staff").innerText =
         "管理者：" + (lineDisplayName || "取得済み");
@@ -2357,6 +2489,43 @@
       return chip;
     }
 
+    function renderFirstVisitCandidates(items) {
+      const area = document.getElementById("firstVisitCandidateList");
+      if (!area) return;
+      area.innerHTML = "";
+      items.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "admin-target" + (item.status === "確定" ? "" : " ready");
+        card.style.whiteSpace = "pre-line";
+        card.textContent =
+          item.userName + " 様 / 担当：" + item.staffName + "\n" +
+          (item.status === "確定"
+            ? "確定：" + item.selected
+            : "返事待ち：" + (item.options || []).join("、")) +
+          (item.notifyResult ? "\n" + item.notifyResult : "");
+        area.appendChild(card);
+      });
+    }
+
+    function createFirstVisitCandidates(buttonEl) {
+      const params = {
+        userId: document.getElementById("firstVisitUser").value,
+        staffId: document.getElementById("firstVisitStaff").value,
+        option1: document.getElementById("firstVisitOption1").value,
+        option2: document.getElementById("firstVisitOption2").value,
+        option3: document.getElementById("firstVisitOption3").value
+      };
+      if (!params.userId || !params.staffId || !(params.option1 || params.option2 || params.option3)) {
+        setMessage("利用者・担当スタッフ・候補日時（1つ以上）を選んでください。");
+        return;
+      }
+      if (!window.confirm("候補日を作成し、利用者（連携済みのご家族を含む）へLINEで送信します。よろしいですか？")) return;
+      runAdminAction("adminCreateFirstVisitCandidates", params, buttonEl);
+      ["firstVisitOption1", "firstVisitOption2", "firstVisitOption3"].forEach(id => {
+        document.getElementById(id).value = "";
+      });
+    }
+
     function renderPendingStaffLineLinks(items) {
       const section = document.getElementById("adminPendingStaffLinksSection");
       const area = document.getElementById("adminPendingStaffLinks");
@@ -2575,6 +2744,7 @@
     function renderUserScheduleList() {
       const area = document.getElementById("scheduleList");
       area.innerHTML = "";
+      if (userFirstVisitOffer) area.appendChild(buildFirstVisitOfferCard(userFirstVisitOffer));
       if (userCoupon) {
         const summary = document.createElement("div");
         summary.className = "schedule-card";

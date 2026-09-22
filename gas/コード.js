@@ -99,6 +99,9 @@ function doPost(e) {
     if (json.action === "userLinkSchedules") {
       return liffResponse_({}, userLinkRequest_(json));
     }
+    if (json.action === "userSelectFirstVisit") {
+      return liffResponse_({}, userSelectFirstVisitRequest_(json));
+    }
     return doGet({
       parameter: json
     });
@@ -506,6 +509,14 @@ function doGet(e) {
     return liffResponse_(e, adminSetupUserQuestionnaireAutoImportTriggerFromLiff_(
       e.parameter.lineUserId,
       e.parameter.displayName
+    ));
+  }
+
+  if (action === "adminCreateFirstVisitCandidates") {
+    return liffResponse_(e, adminCreateFirstVisitCandidatesFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName,
+      e.parameter
     ));
   }
 
@@ -8506,6 +8517,7 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
     issues: relationshipData.issues,
     unlinkedLineUsers: unlinkedLineUsers,
     pendingStaffLineLinks: getPendingStaffLineLinks_(ss),
+    firstVisitCandidates: getOpenFirstVisitCandidatesForAdmin_(ss),
     message: ""
   };
 }
@@ -8699,7 +8711,8 @@ function getAdminStaffMap_(ss) {
       gmail: getPreferredGmailAddressFromStaffRow_(row, headerMap),
       staffFolderId: String(row[cols.payrollFolderId] || "").trim(),
       folderShareStatus: getRowValueByHeaders_(row, headerMap, [STAFF_FOLDER_SHARE_STATUS_HEADER], -1),
-      bankRegistrationStatus: cols.bankRegistrationStatus >= 0 ? String(row[cols.bankRegistrationStatus] || "").trim() : ""
+      bankRegistrationStatus: cols.bankRegistrationStatus >= 0 ? String(row[cols.bankRegistrationStatus] || "").trim() : "",
+      lineLinkPending: isStaffLineLinkPending_(row, cols)
     };
 
     if (name) map.byName[normalizeName_(name)] = item;
@@ -8957,6 +8970,14 @@ function adminSendStaffBankRegistrationGuideFromLiff_(lineUserId, displayName, s
       success: false,
       assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user),
       message: staff.name + "さんのMessaging API LINEユーザーIDが未登録のため、LINE送信できません。"
+    };
+  }
+
+  if (staff.lineLinkPending) {
+    return {
+      success: false,
+      assignmentStartChecklist: buildAssignmentStartChecklist_(ss, staff, user),
+      message: staff.name + "さんのLINE紐づけが承認待ちのため、送信は行いませんでした。先に承認してください。"
     };
   }
 
