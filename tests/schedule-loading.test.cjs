@@ -17,7 +17,8 @@ test('resource reads do not run master maintenance; normal callers still do', ()
   const headers = ['利用者名', '基本情報URL'];
   const sheet = {
     getLastRow: () => 2, getLastColumn: () => 2,
-    getRange: row => ({ getValues: () => row === 1 ? [headers] : [['U', 'https://example.com/info']] })
+    getRange: row => ({ getValues: () => row === 1 ? [headers] : [['U', 'https://example.com/info']] }),
+    getDataRange: () => ({ getValues: () => [headers, ['U', 'https://example.com/info']] })
   };
   const ss = { getSheetByName: () => sheet };
   const readOnly = c.getUserResourceMap_(ss, true);

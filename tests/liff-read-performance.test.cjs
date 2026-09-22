@@ -4,7 +4,7 @@ const fs = require('node:fs'), vm = require('node:vm'), path = require('node:pat
 function fixture(json) {
   const c = vm.createContext({});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8'), c);
-  c.PropertiesService = {getScriptProperties: () => ({getProperty: k => k === 'LIFF_DISPLAY_MASTER_JSON' ? json : null})};
+  c.PropertiesService = {getScriptProperties: () => ({getProperty: k => k === 'LIFF_DISPLAY_MASTER_JSON' ? json : null, getProperties: () => (json === null ? {} : {LIFF_DISPLAY_MASTER_JSON: json})})};
   c.CacheService = {getScriptCache: () => ({get: () => null, put() {}})};
   c.getLiffDisplayMasterCacheVersion_ = () => 'test';
   return c;

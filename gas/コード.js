@@ -626,6 +626,52 @@ function doGet(e) {
 let liffRequestTiming_ = null;
 const LIFF_SLOW_REQUEST_MS = 8000;
 
+// Small read-mostly lookups (coupon balances, user resource links) are cached for a few
+// minutes. Writers bump the version so the next read is fresh; a missing version is
+// replaced with a new one, so an evicted version can never revive old cached data.
+const READ_CACHE_SECONDS = 300;
+
+function readCacheVersion_(cache, name) {
+  const key = "readCacheVer:" + name;
+  let version = cache.get(key);
+  if (!version) {
+    version = String(Date.now()) + Math.random();
+    cache.put(key, version, 21600);
+  }
+  return version;
+}
+
+function bumpReadCache_(name) {
+  try {
+    CacheService.getScriptCache().put("readCacheVer:" + name, String(Date.now()) + Math.random(), 21600);
+  } catch (error) {
+    // If the bump fails, cached copies still expire within READ_CACHE_SECONDS.
+  }
+}
+
+function cachedRead_(name, loader) {
+  let cache = null;
+  let key = "";
+  try {
+    cache = CacheService.getScriptCache();
+    key = "readCache:" + name + ":" + readCacheVersion_(cache, name);
+    const hit = cache.get(key);
+    if (hit) return JSON.parse(hit);
+  } catch (error) {
+    cache = null;
+  }
+  const value = loader();
+  if (cache) {
+    try {
+      const json = JSON.stringify(value);
+      if (json.length < 90000) cache.put(key, json, READ_CACHE_SECONDS);
+    } catch (error) {
+      // Too large or unavailable: just serve uncached.
+    }
+  }
+  return value;
+}
+
 // Records elapsed ms at a named point of the current request (reported as serverPhases).
 function markLiffPhase_(name) {
   if (liffRequestTiming_ && liffRequestTiming_.phases) {
@@ -1071,16 +1117,17 @@ function getLiffInitDataFromDisplayMaster_(lineUserId) {
 }
 
 function getLiffInitDataFromProperties_(lineUserId) {
-  const props = PropertiesService.getScriptProperties();
-  const chunkCount = Number(props.getProperty("LIFF_DISPLAY_MASTER_JSON_CHUNK_COUNT") || 0);
+  // One getProperties() call instead of one getProperty() round trip per chunk.
+  const all = PropertiesService.getScriptProperties().getProperties();
+  const chunkCount = Number(all.LIFF_DISPLAY_MASTER_JSON_CHUNK_COUNT || 0);
   let json = "";
 
   if (chunkCount > 0) {
     for (let i = 0; i < chunkCount; i++) {
-      json += props.getProperty("LIFF_DISPLAY_MASTER_JSON_" + i) || "";
+      json += all["LIFF_DISPLAY_MASTER_JSON_" + i] || "";
     }
   } else {
-    json = props.getProperty("LIFF_DISPLAY_MASTER_JSON") || "";
+    json = all.LIFF_DISPLAY_MASTER_JSON || "";
   }
 
   if (!json) return undefined;
@@ -2748,8 +2795,8 @@ function normalizeHeaderName_(name) {
     .trim();
 }
 
-function getStaffMasterColumnMap_(sheet) {
-  const headerMap = getHeaderColumnMap_(sheet);
+function getStaffMasterColumnMap_(sheet, headerRow) {
+  const headerMap = headerRow ? buildHeaderColumnMap_(headerRow) : getHeaderColumnMap_(sheet);
 
   return {
     name: getColumnIndex_(headerMap, ["スタッフ名", "氏名"], STAFF_COL_NAME),
@@ -6586,6 +6633,7 @@ function updateCouponManagementLocked_(targetUserName) {
     if (matches.length > 1) throw new Error("回数券管理に同じ利用者が複数あります。");
     couponSheet.getRange(matches[0] || lastRow + 1, 1, 1, output[0].length).setValues([output[1]]);
     SpreadsheetApp.flush();
+    bumpReadCache_("couponDisplay");
     return;
   }
 
@@ -6598,6 +6646,7 @@ function updateCouponManagementLocked_(targetUserName) {
     .setFontWeight("bold");
   couponSheet.getRange(1, 1, Math.max(output.length, 1), output[0].length).setWrap(true);
   SpreadsheetApp.flush();
+  bumpReadCache_("couponDisplay");
 }
 
 function getCouponStatus_(couponBalance, monthUsedCount, monthPaidCount, baseline) {
@@ -6608,6 +6657,10 @@ function getCouponStatus_(couponBalance, monthUsedCount, monthPaidCount, baselin
 }
 
 function getCouponDisplayMap_(ss) {
+  return cachedRead_("couponDisplay", () => readCouponDisplayMap_(ss));
+}
+
+function readCouponDisplayMap_(ss) {
   const sheet = ss.getSheetByName(COUPON_SHEET_NAME);
   const map = {};
   if (!sheet || sheet.getLastRow() < 2) return map;
@@ -7301,17 +7354,25 @@ function buildDriveFolderUrlFromId_(folderIdOrUrl) {
 }
 
 function getUserResourceMap_(ss, readOnly) {
+  // Screens only read links, which rarely change: serve them from a 5-minute cache.
+  if (readOnly) return cachedRead_("userResources", () => readUserResourceMap_(ss, true));
+  return readUserResourceMap_(ss, false);
+}
+
+function readUserResourceMap_(ss, readOnly) {
   const sheet = ss.getSheetByName(USER_MASTER_SHEET_NAME);
-  if (!sheet || sheet.getLastRow() < 2) return {};
+  if (!sheet) return {};
 
   if (!readOnly) ensureUserMasterBaseColumns_(sheet);
 
-  const headerMap = getHeaderColumnMap_(sheet);
+  const all = sheet.getDataRange().getValues();
+  if (all.length < 2) return {};
+  const headerMap = buildHeaderColumnMap_(all[0]);
   const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
   const chartUrlCol = getColumnIndex_(headerMap, [USER_CHART_URL_HEADER], -1);
   const userFolderUrlCol = getColumnIndex_(headerMap, [USER_FOLDER_URL_HEADER], -1);
   const basicInfoUrlCol = getColumnIndex_(headerMap, [USER_BASIC_INFO_URL_HEADER], -1);
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const values = all.slice(1);
   const map = {};
 
   values.forEach(row => {
@@ -8508,12 +8569,19 @@ function adminDeniedResponse_(lineUserId) {
 function getAdminDashboardForLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   markLiffPhase_("open");
-  saveLineUserDirectory_(ss, {
-    source: "管理画面LIFF",
-    liffLineUserId: lineUserId,
-    displayName: displayName,
-    checkedAt: new Date()
-  });
+  // Recording the admin's own LINE row reads both masters and writes a row; once
+  // every 6 hours is enough.
+  const dirCache = CacheService.getScriptCache();
+  const dirKey = "adminDirSaved:" + String(lineUserId || "");
+  if (!dirCache.get(dirKey)) {
+    saveLineUserDirectory_(ss, {
+      source: "管理画面LIFF",
+      liffLineUserId: lineUserId,
+      displayName: displayName,
+      checkedAt: new Date()
+    });
+    dirCache.put(dirKey, "1", 21600);
+  }
 
   markLiffPhase_("dirSave");
   if (!isAdminLiffUser_(ss, lineUserId)) {
@@ -8740,10 +8808,11 @@ function getAdminStaffMap_(ss) {
   const map = { byName: {}, byId: {}, list: [] };
   if (!sheet || sheet.getLastRow() < 2) return map;
 
-  const cols = getStaffMasterColumnMap_(sheet);
-  const headerMap = getHeaderColumnMap_(sheet);
+  const all = sheet.getDataRange().getValues();
+  const cols = getStaffMasterColumnMap_(sheet, all[0]);
+  const headerMap = buildHeaderColumnMap_(all[0]);
   const idCol = getColumnIndex_(headerMap, [STAFF_ID_HEADER], -1);
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const values = all.slice(1);
 
   values.forEach(row => {
     const name = String(row[cols.name] || "").trim();
@@ -8776,7 +8845,8 @@ function getAdminUserMap_(ss) {
   if (!sheet || sheet.getLastRow() < 2) return map;
   const linkSummaries = getAdminUserLinkSummary_(ss);
 
-  const headerMap = getHeaderColumnMap_(sheet);
+  const all = sheet.getDataRange().getValues();
+  const headerMap = buildHeaderColumnMap_(all[0]);
   const nameCol = getColumnIndex_(headerMap, ["利用者名", "氏名", "名前"], 0);
   const idCol = getColumnIndex_(headerMap, [USER_ID_HEADER], -1);
   const lineDisplayNameCol = getColumnIndex_(headerMap, ["LINE表示名", "LINE名"], -1);
@@ -8785,7 +8855,7 @@ function getAdminUserMap_(ss) {
   const statusCol = getColumnIndex_(headerMap, ["状態"], -1);
   const preferredWeekdayCol = getColumnIndex_(headerMap, ["訪問希望曜日", "希望曜日"], -1);
   const preferredTimeCol = getColumnIndex_(headerMap, ["訪問希望時間帯", "希望時間帯"], -1);
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const values = all.slice(1);
 
   values.forEach(row => {
     const name = String(row[nameCol] || "").trim();
@@ -9205,10 +9275,9 @@ function buildAssignmentStartChecklistContext_(ss) {
 function buildAssignmentScheduleStatusIndex_(ss) {
   const map = {};
   const sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
-  if (!sheet || sheet.getLastRow() < 2) return map;
+  if (!sheet) return map;
 
-  ensureScheduleStatusColumns_(sheet);
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
+  const values = sheet.getDataRange().getValues().slice(1);
 
   values.forEach(row => {
     const staffName = String(row[1] || "").trim();
