@@ -7643,7 +7643,15 @@ function parseComparisonDate_(value, fallbackDate) {
     const base = Object.prototype.toString.call(fallbackDate) === "[object Date]" && !isNaN(fallbackDate.getTime())
       ? fallbackDate
       : new Date();
-    return new Date(base.getFullYear(), Number(md[1]) - 1, Number(md[2]));
+    // "M/d" has no year. Pick the year that puts the date within 4 months before to 8
+    // months after the base (registration/recorded) date: bookings are made ahead, and
+    // back-dated records are recent. This keeps a January visit booked in December (or a
+    // late-December visit recorded in January) from landing a year off.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const date = new Date(base.getFullYear(), Number(md[1]) - 1, Number(md[2]));
+    if (date.getTime() < base.getTime() - 120 * DAY_MS) date.setFullYear(date.getFullYear() + 1);
+    else if (date.getTime() >= base.getTime() + 245 * DAY_MS) date.setFullYear(date.getFullYear() - 1);
+    return date;
   }
 
   const date = new Date(text);
