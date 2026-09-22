@@ -15,7 +15,7 @@ function fixture() {
     URLSearchParams, lineUserId: 'admin-id', lineDisplayName: '管理者', GAS_URL: 'https://example.com',
     document: { getElementById: id => id === 'message' ? messageEl : null },
     setMessage: text => { messageEl.innerText = text; },
-    jsonp: () => new Promise((yes, no) => { resolveJsonp = yes; rejectJsonp = no; }),
+    requestLiffData: () => new Promise((yes, no) => { resolveJsonp = yes; rejectJsonp = no; }),
     loadAdminDashboard: () => Promise.resolve()
   });
   vm.runInContext(html.slice(start, end), c);

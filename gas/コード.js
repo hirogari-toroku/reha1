@@ -352,6 +352,46 @@ function doPost(e) {
   return ContentService.createTextOutput("OK");
 }
 
+const LIFF_TOKEN_CACHE_SECONDS = 600;
+
+// Resolves a LIFF access token to the LINE profile it belongs to, verified with LINE
+// (userLinkVerify_ checks the token's channel and expiry). Verified tokens are cached
+// for 10 minutes under a hash of the token so normal screen use costs no extra LINE calls.
+function verifyLiffRequestIdentity_(accessToken) {
+  const token = String(accessToken || "");
+  if (!token || token.length > 4096) return null;
+
+  let cache = null;
+  let cacheKey = "";
+  try {
+    cache = CacheService.getScriptCache();
+    const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token);
+    cacheKey = "liffTok:" + Utilities.base64EncodeWebSafe(digest);
+    const cached = cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (error) {
+    cache = null;
+  }
+
+  let profile;
+  try {
+    profile = userLinkVerify_(token);
+  } catch (error) {
+    if (error.userLinkSafe) return null;
+    throw error;
+  }
+
+  const identity = { userId: profile.userId, displayName: String(profile.displayName || "") };
+  if (cache && cacheKey) {
+    try {
+      cache.put(cacheKey, JSON.stringify(identity), LIFF_TOKEN_CACHE_SECONDS);
+    } catch (error) {
+      // Not caching only costs a re-verification on the next request.
+    }
+  }
+  return identity;
+}
+
 function doGet(e) {
   const action = e && e.parameter ? e.parameter.action || "ping" : "ping";
 
@@ -364,6 +404,28 @@ function doGet(e) {
       time: new Date()
     });
   }
+
+  // Every other action acts as the LINE account in lineUserId, so that ID must come
+  // from a LIFF access token LINE itself vouches for, not from what the page sends.
+  const identity = verifyLiffRequestIdentity_(e.parameter.accessToken);
+  if (!identity) {
+    return liffResponse_(e, {
+      success: false,
+      authRequired: true,
+      message: "LINEの確認ができませんでした。画面を閉じて、LINEから開き直してください。"
+    });
+  }
+  const claimedLineUserId = String(e.parameter.lineUserId || "").trim();
+  if (claimedLineUserId && claimedLineUserId !== identity.userId) {
+    return liffResponse_(e, {
+      success: false,
+      authRequired: true,
+      message: "LINEの確認ができませんでした。画面を閉じて、LINEから開き直してください。"
+    });
+  }
+  e.parameter.lineUserId = identity.userId;
+  if (identity.displayName) e.parameter.displayName = identity.displayName;
+  delete e.parameter.accessToken;
 
   if (action === "adminSetupPricingPolicy") {
     return liffResponse_(e, adminSetupPricingPolicy_(e.parameter.lineUserId));

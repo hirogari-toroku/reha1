@@ -1209,7 +1209,6 @@
     let lineDisplayName = "";
     let staffName = "";
     let visitType = "開始";
-    let jsonpCounter = 0;
     let scheduleDates = [];
     let scheduleCalendarMonth = new Date();
     let visitSubmitting = false;
@@ -1226,35 +1225,6 @@
     let importantInfo = {};
     let userResourceMap = {};
 
-    function jsonp(url, timeoutMs) {
-      return new Promise((resolve, reject) => {
-        const callbackName = "jsonp_cb_" + jsonpCounter++;
-        const script = document.createElement("script");
-        const timeout = timeoutMs || 20000;
-        const timer = setTimeout(() => {
-          delete window[callbackName];
-          script.remove();
-          reject(new Error("通信がタイムアウトしました。LIFF操作ログを確認してください。"));
-        }, timeout);
-
-        window[callbackName] = data => {
-          clearTimeout(timer);
-          resolve(data);
-          delete window[callbackName];
-          script.remove();
-        };
-
-        script.onerror = () => {
-          clearTimeout(timer);
-          delete window[callbackName];
-          script.remove();
-          reject(new Error("通信に失敗しました"));
-        };
-
-        script.src = url + (url.indexOf("?") === -1 ? "?" : "&") + "callback=" + callbackName + "&_=" + Date.now();
-        document.body.appendChild(script);
-      });
-    }
 
     function setMessage(text) {
       document.getElementById("message").innerText = text || "";
@@ -1824,14 +1794,25 @@
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
+        // The server acts only as the LINE account this token belongs to.
+        const body = Object.fromEntries(params);
+        body.accessToken = getLiffAccessToken();
         const response = await fetch(GAS_URL, {
           method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
-          body: JSON.stringify(Object.fromEntries(params)), signal: controller.signal,
-          credentials: "omit"
+          body: JSON.stringify(body), signal: controller.signal,
+          credentials: "omit", referrerPolicy: "no-referrer"
         });
         if (!response.ok) throw new Error("通信結果を受信できませんでした。");
         return await response.json();
       } finally { clearTimeout(timer); }
+    }
+
+    function getLiffAccessToken() {
+      try {
+        return (window.liff && liff.getAccessToken && liff.getAccessToken()) || "";
+      } catch (error) {
+        return "";
+      }
     }
 
     function logRegisterLiffLogin(displayName) {
@@ -2312,7 +2293,7 @@
         targetId: targetId
       });
 
-      jsonp(GAS_URL + "?" + params.toString())
+      requestLiffData(params)
         .then(data => {
           renderAdminPreview(data);
           setMessage(data.message || "");
@@ -2591,7 +2572,7 @@
       };
       showMessage("処理中...");
 
-      jsonp(GAS_URL + "?" + params.toString())
+      requestLiffData(params)
         .then(data => {
           showMessage(data.message || "");
           if (data.assignmentStartChecklist) {
@@ -2883,7 +2864,7 @@
       renderScheduleList();
       setMessage("キャンセル中...");
 
-      jsonp(GAS_URL + "?" + params.toString())
+      requestLiffData(params)
         .then(data => {
           setMessage(data.message || "");
           return loadSchedules(true);
@@ -2922,7 +2903,7 @@
       renderScheduleList();
       setMessage("変更中...");
 
-      jsonp(GAS_URL + "?" + params.toString())
+      requestLiffData(params)
         .then(data => {
           setMessage(data.message || "");
           return loadSchedules(true);
@@ -2943,7 +2924,7 @@
         lineUserId: lineUserId
       });
 
-      return applyUserListData(jsonp(GAS_URL + "?" + params.toString()));
+      return applyUserListData(requestLiffData(params));
     }
 
     function applyUserListData(request) {
@@ -3019,7 +3000,7 @@
         displayName: displayName || ""
       });
 
-      return jsonp(GAS_URL + "?" + params.toString())
+      return requestLiffData(params)
         .then(data => {
           if (data && data.registered) {
             document.getElementById("staff").innerText = "スタッフ：" + data.staffName;
@@ -3072,7 +3053,7 @@
       renderScheduleList();
       setMessage("登録中...");
 
-      jsonp(GAS_URL + "?" + params.toString(), 45000)
+      requestLiffData(params, 45000)
         .then(data => {
           setMessage(data.message);
           if (data.success || scheduleId) return loadSchedules(true);
@@ -3110,7 +3091,7 @@
       setDisabled(true);
       setMessage("登録中...");
 
-      jsonp(GAS_URL + "?" + params.toString())
+      requestLiffData(params)
         .then(data => {
           if (data.success) {
             scheduleDates = [];
