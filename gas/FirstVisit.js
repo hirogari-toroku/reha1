@@ -227,6 +227,7 @@ function bookFirstVisitOption_(ss, user, liffLineUserId, candidateId, optionInde
     const timeText = option.date.getHours() + ":" + String(option.date.getMinutes()).padStart(2, "0");
     let scheduleRow = "";
     if (!isDuplicateSchedule_(scheduleSheet, staffName, user.name, dateText)) {
+      bumpReadCache_("assignmentSchedule");
       scheduleSheet.appendRow([
         now, staffName, user.name, dateText,
         "初回訪問（利用者選択） " + timeText,

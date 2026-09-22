@@ -307,6 +307,7 @@ function doPost(e) {
           return;
         }
 
+        bumpReadCache_("assignmentSchedule");
         scheduleSheet.appendRow([
           row[0],
           row[1],
@@ -1660,6 +1661,7 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
       return;
     }
 
+    bumpReadCache_("assignmentSchedule");
     scheduleSheet.appendRow([
       now,
       staffName,
@@ -1909,6 +1911,7 @@ function cancelScheduleFromLiff_(lineUserId, scheduleId) {
     };
   }
 
+  bumpReadCache_("assignmentSchedule");
   scheduleSheet.getRange(row.rowNumber, 9, 1, 3).setValues([[
     "キャンセル",
     now,
@@ -2011,6 +2014,7 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
     };
   }
 
+  bumpReadCache_("assignmentSchedule");
   scheduleSheet.getRange(targetRow.rowNumber, 3, 1, 9).setValues([[
     resolvedUserName,
     newDate,
@@ -2376,6 +2380,7 @@ function updateScheduleStatusFromLineVisit_(scheduleSheet, staffName, userName, 
 }
 
 function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitDate, visitTime, now) {
+  bumpReadCache_("assignmentSchedule");
   const type = visitType === "終了" ? "終了" : "開始";
   const nextStatus = type === "終了" ? "完了" : "訪問中";
   const note = type + "登録：" + visitDate + " " + visitTime;
@@ -4997,6 +5002,7 @@ function saveLineUserDirectory_(ss, data) {
   } else {
     sheet.appendRow(values[0]);
   }
+  bumpReadCache_("adminLineDirectory");
 }
 
 function ensureLineUserDirectorySheet_(ss) {
@@ -5343,6 +5349,7 @@ function applyLineUserDirectoryToMastersCore_(ss) {
     }
   });
   applyCellUpdates_(directorySheet, directoryUpdates);
+  bumpReadCache_("adminLineDirectory");
 
   return {
     success: true,
@@ -5378,6 +5385,7 @@ function updateLineUserDirectoryLinksWithoutAlert_(ss, sheet) {
   });
 
   targetSheet.getRange(2, 1, updatedRows.length, 13).setValues(updatedRows);
+  bumpReadCache_("adminLineDirectory");
   return updatedRows.length;
 }
 
@@ -8590,22 +8598,24 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
   }
   markLiffPhase_("adminCheck");
 
-  const directorySheet = ensureLineUserDirectorySheet_(ss);
-
-  const rows = directorySheet.getLastRow() < 2
-    ? []
-    : directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
-  const unlinkedLineUsers = rows
-    .filter(row => String(row[9] || "").indexOf("反映済み") === -1)
-    .slice(0, 50)
-    .map(row => ({
-      displayName: row[4] || "",
-      type: row[5] || "",
-      candidateName: row[6] || "",
-      status: row[9] || "",
-      source: row[10] || "",
-      note: row[12] || ""
-    }));
+  // Cached until the LINE user list is written (see bumpReadCache_("adminLineDirectory")).
+  const unlinkedLineUsers = cachedRead_("adminLineDirectory", () => {
+    const directorySheet = ensureLineUserDirectorySheet_(ss);
+    const rows = directorySheet.getLastRow() < 2
+      ? []
+      : directorySheet.getRange(2, 1, directorySheet.getLastRow() - 1, 13).getValues();
+    return rows
+      .filter(row => String(row[9] || "").indexOf("反映済み") === -1)
+      .slice(0, 50)
+      .map(row => ({
+        displayName: row[4] || "",
+        type: row[5] || "",
+        candidateName: row[6] || "",
+        status: row[9] || "",
+        source: row[10] || "",
+        note: row[12] || ""
+      }));
+  });
   markLiffPhase_("dirRead");
   const relationshipData = getAdminRelationshipData_(ss);
   markLiffPhase_("relations");
@@ -9273,6 +9283,16 @@ function buildAssignmentStartChecklistContext_(ss) {
 }
 
 function buildAssignmentScheduleStatusIndex_(ss) {
+  // Cached until 訪問予定 is written (see bumpReadCache_("assignmentSchedule")).
+  return cachedRead_("assignmentSchedule", () => {
+    const map = readAssignmentScheduleStatusIndex_(ss);
+    const texts = {};
+    Object.keys(map).forEach(key => { texts[key] = { text: map[key].text }; });
+    return texts;
+  });
+}
+
+function readAssignmentScheduleStatusIndex_(ss) {
   const map = {};
   const sheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   if (!sheet) return map;
