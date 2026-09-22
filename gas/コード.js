@@ -2436,7 +2436,50 @@ function isRecentDuplicateVisit_(sheet, staffName, userName, visitType, visitDat
     return true;
   }
 
+  return isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, targetDate, targetTime);
+}
+
+// The check above only catches a resend within 10 minutes at the same minute. A visit
+// reported once through LINE and again through LIFF (or hours later) usually differs by a
+// few minutes, so also treat a record of the same type, staff, user and date within
+// LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES as the same visit, however long ago it was
+// recorded. Two genuine starts (or ends) for the same pair that close together cannot
+// both be real visits. Records without a usable time only use the exact check above.
+const LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES = 60;
+
+function isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, targetDate, targetTime) {
+  const targetMinutes = visitTimeKeyToMinutes_(targetTime);
+  if (targetMinutes === null || !targetDate) return false;
+
+  const dateParts = targetDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!dateParts) return false;
+  const visitDay = new Date(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]));
+
+  const lastRow = sheet.getLastRow();
+  const startRow = findVisitResultReadStartRow_(sheet, visitDay);
+  if (startRow > lastRow) return false;
+  const values = sheet
+    .getRange(startRow, 1, lastRow - startRow + 1, Math.min(sheet.getLastColumn(), 8))
+    .getValues();
+
+  for (let i = values.length - 1; i >= 0; i--) {
+    const row = values[i];
+    if (String(row[1] || "").trim() !== targetType) continue;
+    if (normalizeName_(row[2]) !== targetStaff) continue;
+    if (normalizeName_(row[3]) !== targetUser) continue;
+    if (normalizeVisitDateKey_(row[4]) !== targetDate) continue;
+    const minutes = visitTimeKeyToMinutes_(normalizeVisitTimeKey_(row[5]));
+    if (minutes === null) continue;
+    if (Math.abs(minutes - targetMinutes) <= LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES) return true;
+  }
+
   return false;
+}
+
+function visitTimeKeyToMinutes_(timeKey) {
+  const match = String(timeKey || "").match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
 function normalizeVisitDateKey_(value) {
