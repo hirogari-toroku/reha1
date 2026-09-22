@@ -219,6 +219,7 @@ function doPost(e) {
         isDuplicateVisit = isRecentDuplicateVisit_(resultSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt);
         if (!isDuplicateVisit) {
           visitRows.forEach(row => resultSheet.appendRow(row));
+          updateScheduleStatusFromLineVisit_(scheduleSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt);
         }
       } finally {
         visitLock.releaseLock();
@@ -1285,7 +1286,9 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
       };
     }
 
-    if (type === "終了" && scheduleStatus !== "訪問中") {
+    // A start reported through a LINE message may not have moved this row to 訪問中
+    // (e.g. before LINE reports updated the schedule sheet), so the visit log counts too.
+    if (type === "終了" && scheduleStatus !== "訪問中" && !hasLoggedVisitStart_(resultSheet, staffName, resolvedUserName, targetDate, now)) {
       const message = "開始登録がないため、終了実績は登録できません。先に開始を登録してください。";
       saveLiffOperationLog_(ss, "recordVisit:schedule", lineUserId, staffName, resolvedUserName, type, targetDate, targetTime, "失敗", message);
       return {
@@ -2202,6 +2205,66 @@ function ensureScheduleStatusColumns_(sheet) {
   }
 }
 
+function hasLoggedVisitStart_(resultSheet, staffName, userName, visitDate, now) {
+  if (!resultSheet) return false;
+  const day = parseComparisonDate_(visitDate, now);
+  if (!day) return false;
+  const visitStatus = getVisitStatusForSchedule_(
+    buildVisitStatusIndex_(resultSheet, staffName, userName, day),
+    day,
+    staffName,
+    userName
+  );
+  return !!(visitStatus && visitStatus.hasStart);
+}
+
+// LINE text reports carry no schedule ID, so the schedule row is found by staff, user and
+// visit day. Only an unambiguous match is updated: for 開始 the single not-yet-started
+// schedule, for 終了 the single 訪問中 schedule (or, if none, the single 予定 one). Anything
+// else is left for the LIFF screen, which already derives its display status from the
+// visit log. Failures here never block the visit record itself.
+function updateScheduleStatusFromLineVisit_(scheduleSheet, staffName, userName, visitType, visitDate, visitTime, receivedAt) {
+  try {
+    if (!scheduleSheet || scheduleSheet.getLastRow() < 2) return null;
+    const visitDay = parseComparisonDate_(visitDate, receivedAt);
+    if (!visitDay) return null;
+    const dayKey = visitDayKey_(visitDay);
+    const targetStaff = normalizeName_(staffName);
+    const targetUser = normalizeName_(userName);
+
+    const startRow = getScheduleWindowReadStartRow_(scheduleSheet);
+    const values = scheduleSheet
+      .getRange(startRow, 1, scheduleSheet.getLastRow() - startRow + 1, Math.min(scheduleSheet.getLastColumn(), 11))
+      .getValues();
+    const planned = [];
+    const inProgress = [];
+
+    values.forEach((row, index) => {
+      if (normalizeName_(row[1]) !== targetStaff) return;
+      if (normalizeName_(row[2]) !== targetUser) return;
+      const status = String(row[8] || "予定").trim();
+      if (isCancelledScheduleStatus_(status) || status === "完了") return;
+      const date = parseComparisonDate_(row[3], row[0]);
+      if (!date || visitDayKey_(date) !== dayKey) return;
+      if (status === "訪問中") inProgress.push(index + startRow);
+      else planned.push(index + startRow);
+    });
+
+    const type = visitType === "終了" ? "終了" : "開始";
+    let rowNumber = null;
+    if (type === "開始" && planned.length === 1 && inProgress.length === 0) rowNumber = planned[0];
+    if (type === "終了" && inProgress.length === 1) rowNumber = inProgress[0];
+    if (type === "終了" && inProgress.length === 0 && planned.length === 1) rowNumber = planned[0];
+    if (!rowNumber) return null;
+
+    updateLinkedScheduleVisitStatus_(scheduleSheet, rowNumber, type, visitDate, visitTime, receivedAt);
+    return rowNumber;
+  } catch (error) {
+    console.error("updateScheduleStatusFromLineVisit_ failed: " + error.message);
+    return null;
+  }
+}
+
 function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitDate, visitTime, now) {
   const type = visitType === "終了" ? "終了" : "開始";
   const nextStatus = type === "終了" ? "完了" : "訪問中";
@@ -2436,7 +2499,7 @@ function isRecentDuplicateVisit_(sheet, staffName, userName, visitType, visitDat
     return true;
   }
 
-  return isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, targetDate, targetTime);
+  return isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, visitDate, targetTime, now);
 }
 
 // The check above only catches a resend within 10 minutes at the same minute. A visit
@@ -2447,13 +2510,15 @@ function isRecentDuplicateVisit_(sheet, staffName, userName, visitType, visitDat
 // both be real visits. Records without a usable time only use the exact check above.
 const LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES = 60;
 
-function isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, targetDate, targetTime) {
+// LINE records store the date as "M/d" and LIFF records as "yyyy-MM-dd", so dates are
+// compared as calendar days, resolving a missing year from each row's recorded time.
+function isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, visitDate, targetTime, now) {
   const targetMinutes = visitTimeKeyToMinutes_(targetTime);
-  if (targetMinutes === null || !targetDate) return false;
+  if (targetMinutes === null) return false;
 
-  const dateParts = targetDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!dateParts) return false;
-  const visitDay = new Date(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]));
+  const visitDay = parseComparisonDate_(visitDate, now instanceof Date ? now : new Date(now));
+  if (!visitDay) return false;
+  const targetDayKey = visitDayKey_(visitDay);
 
   const lastRow = sheet.getLastRow();
   const startRow = findVisitResultReadStartRow_(sheet, visitDay);
@@ -2467,13 +2532,18 @@ function isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType,
     if (String(row[1] || "").trim() !== targetType) continue;
     if (normalizeName_(row[2]) !== targetStaff) continue;
     if (normalizeName_(row[3]) !== targetUser) continue;
-    if (normalizeVisitDateKey_(row[4]) !== targetDate) continue;
+    const rowDay = parseComparisonDate_(row[4], row[0] instanceof Date ? row[0] : undefined);
+    if (!rowDay || visitDayKey_(rowDay) !== targetDayKey) continue;
     const minutes = visitTimeKeyToMinutes_(normalizeVisitTimeKey_(row[5]));
     if (minutes === null) continue;
     if (Math.abs(minutes - targetMinutes) <= LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES) return true;
   }
 
   return false;
+}
+
+function visitDayKey_(date) {
+  return date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 }
 
 function visitTimeKeyToMinutes_(timeKey) {

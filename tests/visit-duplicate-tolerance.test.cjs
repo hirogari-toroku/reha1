@@ -65,3 +65,13 @@ test('the original same-minute resend check still applies', () => {
   const sheet = makeSheet([header, [recordedHoursAgo(0.05), '開始', '佐藤', '山田太郎', '2026-09-22', '09:00']]);
   assert.equal(c.isRecentDuplicateVisit_(sheet, '佐藤', '山田太郎', '開始', '2026-09-22', '09:00', now), true);
 });
+
+test('a LINE record (M/d date) and a LIFF record (yyyy-MM-dd) of the same visit are matched', () => {
+  const c = context();
+  const now = new Date(2026, 8, 22, 17, 0);
+  const lineRow = [new Date(2026, 8, 22, 15, 1), '終了', '佐藤', '山田太郎', '9/22', '15:01'];
+  const liffRow = [new Date(2026, 8, 22, 15, 3), '終了', '佐藤', '山田太郎', '2026-09-22', '15:03'];
+  assert.equal(c.isRecentDuplicateVisit_(makeSheet([header, lineRow]), '佐藤', '山田太郎', '終了', '2026-09-22', '15:10', now), true);
+  assert.equal(c.isRecentDuplicateVisit_(makeSheet([header, liffRow]), '佐藤', '山田太郎', '終了', '9/22', '15:40', now), true);
+  assert.equal(c.isRecentDuplicateVisit_(makeSheet([header, liffRow]), '佐藤', '山田太郎', '終了', '9/23', '15:40', now), false);
+});
