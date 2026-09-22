@@ -1909,6 +1909,7 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
     now,
     "LIFF変更：" + targetRow.userName + " " + targetRow.visitDate + " → " + resolvedUserName + " " + newDate
   ]]);
+  lowerScheduleReadStartRowHint_(targetRow.rowNumber);
 
   const message = "予定を変更しました。利用者：" + resolvedUserName + " 様、日付：" + newDate;
 
@@ -1936,14 +1937,15 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
 function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
+  const startRow = getScheduleWindowReadStartRow_(sheet);
+  const values = sheet.getRange(startRow, 1, sheet.getLastRow() - startRow + 1, Math.min(sheet.getLastColumn(), 11)).getValues();
   const targetStaff = normalizeName_(staffName);
   const dateWindow = getLiffScheduleDateWindow_();
   const schedules = [];
   const plannedVisitKeys = {};
 
   values.forEach((row, index) => {
-    const rowNumber = index + 2;
+    const rowNumber = index + startRow;
     const rowStaffName = String(row[1] || "").trim();
     const userName = String(row[2] || "").trim();
     const visitDate = row[3];
@@ -1981,14 +1983,15 @@ function collectActiveSchedulesForStaff_(sheet, staffName, visitStatusIndex) {
 function collectActiveSchedulesForUser_(sheet, userName, visitStatusIndex) {
   if (!sheet || sheet.getLastRow() < 2) return [];
 
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(sheet.getLastColumn(), 11)).getValues();
+  const startRow = getScheduleWindowReadStartRow_(sheet);
+  const values = sheet.getRange(startRow, 1, sheet.getLastRow() - startRow + 1, Math.min(sheet.getLastColumn(), 11)).getValues();
   const targetUser = normalizeName_(userName);
   const dateWindow = getLiffScheduleDateWindow_();
   const schedules = [];
   const plannedVisitKeys = {};
 
   values.forEach((row, index) => {
-    const rowNumber = index + 2;
+    const rowNumber = index + startRow;
     const staffName = String(row[1] || "").trim();
     const rowUserName = String(row[2] || "").trim();
     const visitDate = row[3];
@@ -2071,6 +2074,84 @@ function enrichLiffScheduleItemsWithUserResources_(ss, schedules) {
   });
 
   return schedules;
+}
+
+// 訪問予定 rows are appended when a visit is booked, not in visit-date order, so a
+// simple backward scan (as used for 訪問実績) is unsafe. Instead, once per day we scan
+// the whole sheet and remember the first row whose visit date is on or after the
+// display window start minus a safety margin; every earlier row is outside the window.
+// Rows appended later are always after that row, and updateScheduleFromLiff_ lowers the
+// hint if it moves an earlier row's date. Manual date edits in the sheet are picked
+// up by the next daily rescan.
+const SCHEDULE_READ_START_PROPERTY = "SCHEDULE_READ_START_ROW_HINT";
+const SCHEDULE_READ_START_SAFETY_DAYS = 31;
+
+function getScheduleWindowReadStartRow_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 2;
+
+  const todayKey = formatScheduleHintDayKey_(new Date());
+  let props = null;
+  try {
+    props = PropertiesService.getScriptProperties();
+    const saved = JSON.parse(props.getProperty(SCHEDULE_READ_START_PROPERTY) || "null");
+    if (
+      saved &&
+      saved.day === todayKey &&
+      Number(saved.row) >= 2 &&
+      Number(saved.lastRow) <= lastRow &&
+      Number(saved.row) <= lastRow + 1
+    ) {
+      return Math.min(Number(saved.row), lastRow);
+    }
+  } catch (error) {
+    // Unreadable hint: fall through to a full scan.
+  }
+
+  const startRow = findScheduleWindowStartRow_(sheet, lastRow);
+  if (props) {
+    try {
+      props.setProperty(SCHEDULE_READ_START_PROPERTY, JSON.stringify({ day: todayKey, row: startRow, lastRow: lastRow }));
+    } catch (error) {
+      // A failed cache write only means the next read scans again.
+    }
+  }
+  return startRow;
+}
+
+function findScheduleWindowStartRow_(sheet, lastRow) {
+  const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+  const cutoffTime = getLiffScheduleDateWindow_().startTime - SCHEDULE_READ_START_SAFETY_DAYS * 24 * 60 * 60 * 1000;
+
+  for (let i = 0; i < values.length; i++) {
+    const visitDate = values[i][3];
+    if (!visitDate) continue;
+    const date = parseComparisonDate_(visitDate, values[i][0]);
+    if (!date || date.getTime() >= cutoffTime) {
+      // Unparseable dates are kept in range so nothing the old full read could show is lost.
+      return i + 2;
+    }
+  }
+  // No row is in range: start after the last row, clamped by the caller to read one row.
+  return lastRow;
+}
+
+function lowerScheduleReadStartRowHint_(rowNumber) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const saved = JSON.parse(props.getProperty(SCHEDULE_READ_START_PROPERTY) || "null");
+    if (saved && Number(saved.row) > rowNumber) {
+      saved.row = Math.max(2, rowNumber);
+      props.setProperty(SCHEDULE_READ_START_PROPERTY, JSON.stringify(saved));
+    }
+  } catch (error) {
+    // If the hint cannot be lowered, drop it so the next read rescans the sheet.
+    try { PropertiesService.getScriptProperties().deleteProperty(SCHEDULE_READ_START_PROPERTY); } catch (ignored) {}
+  }
+}
+
+function formatScheduleHintDayKey_(date) {
+  return date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 }
 
 function getLiffScheduleDateWindow_() {
