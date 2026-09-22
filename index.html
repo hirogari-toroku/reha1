@@ -1663,6 +1663,7 @@
       document.getElementById("scheduleList").innerHTML = "";
       if (!silent) setMessage("予約を読み込み中...");
 
+      const userRequestStartedAt = Date.now();
       userLinkLoadPromise = fetch(GAS_URL, {
         method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
         credentials: "omit", referrerPolicy: "no-referrer", signal: controller.signal,
@@ -1670,6 +1671,7 @@
       }).then(response => { if (!response.ok) throw new Error("通信に失敗しました。"); return response.json(); })
         .then(data => {
           scheduleItems = data.schedules || [];
+          noteSlowRequest("予約確認", Date.now() - userRequestStartedAt, data);
           reportLiffStage(data.pending ? "user_pending" : data.success ? "user_shown" : "user_rejected");
           userCoupon = data.success ? data.coupon || null : null;
           userFirstVisitOffer = data.success ? data.firstVisitOffer || null : null;
@@ -1681,7 +1683,8 @@
               (data.pending ? "登録確認待ち" : "利用者情報を確認できませんでした。");
           }
           renderUserScheduleList();
-          setMessage(data.message || "");
+          setMessage([data.message || "", slowRequestNotice].filter(Boolean).join("\n"));
+          slowRequestNotice = "";
         })
         .catch(error => {
           scheduleItems = [];

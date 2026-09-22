@@ -96,11 +96,11 @@ function doPost(e) {
 
   if (json.action) {
     if (json.action === "liffDiagnostic") return liffResponse_({}, recordLiffDiagnostic_(json));
-    if (json.action === "userLinkSchedules") {
-      return liffResponse_({}, userLinkRequest_(json));
-    }
-    if (json.action === "userSelectFirstVisit") {
-      return liffResponse_({}, userSelectFirstVisitRequest_(json));
+    if (json.action === "userLinkSchedules" || json.action === "userSelectFirstVisit") {
+      liffRequestTiming_ = { start: Date.now(), phases: [], action: json.action, lineUserId: "" };
+      return liffResponse_({}, json.action === "userLinkSchedules"
+        ? userLinkRequest_(json)
+        : userSelectFirstVisitRequest_(json));
     }
     return doGet({
       parameter: json
@@ -229,6 +229,7 @@ function doPost(e) {
         isDuplicateVisit = isRecentDuplicateVisit_(resultSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt);
         if (!isDuplicateVisit) {
           visitRows.forEach(row => resultSheet.appendRow(row));
+          bumpReadCache_("schedules");
           updateScheduleStatusFromLineVisit_(scheduleSheet, staffName, firstRow[3], firstRow[1], firstRow[4], firstRow[5], receivedAt);
         }
       } finally {
@@ -307,7 +308,7 @@ function doPost(e) {
           return;
         }
 
-        bumpReadCache_("assignmentSchedule");
+        bumpReadCache_("schedules");
         scheduleSheet.appendRow([
           row[0],
           row[1],
@@ -650,12 +651,15 @@ function bumpReadCache_(name) {
   }
 }
 
-function cachedRead_(name, loader) {
+// options: { versions: [names whose bump invalidates this], ttl: seconds }
+function cachedRead_(name, loader, options) {
+  const versions = (options && options.versions) || [name];
+  const ttl = (options && options.ttl) || READ_CACHE_SECONDS;
   let cache = null;
   let key = "";
   try {
     cache = CacheService.getScriptCache();
-    key = "readCache:" + name + ":" + readCacheVersion_(cache, name);
+    key = "readCache:" + name + ":" + versions.map(version => readCacheVersion_(cache, version)).join("-");
     const hit = cache.get(key);
     if (hit) return JSON.parse(hit);
   } catch (error) {
@@ -665,7 +669,7 @@ function cachedRead_(name, loader) {
   if (cache) {
     try {
       const json = JSON.stringify(value);
-      if (json.length < 90000) cache.put(key, json, READ_CACHE_SECONDS);
+      if (json.length < 90000) cache.put(key, json, ttl);
     } catch (error) {
       // Too large or unavailable: just serve uncached.
     }
@@ -1450,6 +1454,7 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     };
   }
 
+  bumpReadCache_("schedules");
   resultSheet.appendRow([
     now,
     type,
@@ -1661,7 +1666,7 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
       return;
     }
 
-    bumpReadCache_("assignmentSchedule");
+    bumpReadCache_("schedules");
     scheduleSheet.appendRow([
       now,
       staffName,
@@ -1911,7 +1916,7 @@ function cancelScheduleFromLiff_(lineUserId, scheduleId) {
     };
   }
 
-  bumpReadCache_("assignmentSchedule");
+  bumpReadCache_("schedules");
   scheduleSheet.getRange(row.rowNumber, 9, 1, 3).setValues([[
     "キャンセル",
     now,
@@ -2014,7 +2019,7 @@ function updateScheduleFromLiff_(lineUserId, scheduleId, userName, visitDate) {
     };
   }
 
-  bumpReadCache_("assignmentSchedule");
+  bumpReadCache_("schedules");
   scheduleSheet.getRange(targetRow.rowNumber, 3, 1, 9).setValues([[
     resolvedUserName,
     newDate,
@@ -2380,7 +2385,7 @@ function updateScheduleStatusFromLineVisit_(scheduleSheet, staffName, userName, 
 }
 
 function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitDate, visitTime, now) {
-  bumpReadCache_("assignmentSchedule");
+  bumpReadCache_("schedules");
   const type = visitType === "終了" ? "終了" : "開始";
   const nextStatus = type === "終了" ? "完了" : "訪問中";
   const note = type + "登録：" + visitDate + " " + visitTime;
@@ -9283,8 +9288,8 @@ function buildAssignmentStartChecklistContext_(ss) {
 }
 
 function buildAssignmentScheduleStatusIndex_(ss) {
-  // Cached until 訪問予定 is written (see bumpReadCache_("assignmentSchedule")).
-  return cachedRead_("assignmentSchedule", () => {
+  // Cached until 訪問予定 is written (see bumpReadCache_("schedules")).
+  return cachedRead_("schedules", () => {
     const map = readAssignmentScheduleStatusIndex_(ss);
     const texts = {};
     Object.keys(map).forEach(key => { texts[key] = { text: map[key].text }; });

@@ -131,6 +131,7 @@ function adminCreateFirstVisitCandidatesFromLiff_(lineUserId, displayName, param
       optionCells[0], optionCells[1], optionCells[2], FIRST_VISIT_OPEN, "", "", "", "", ""
     ]]);
     SpreadsheetApp.flush();
+    bumpReadCache_("firstVisit");
   } finally {
     lock.releaseLock();
   }
@@ -227,7 +228,7 @@ function bookFirstVisitOption_(ss, user, liffLineUserId, candidateId, optionInde
     const timeText = option.date.getHours() + ":" + String(option.date.getMinutes()).padStart(2, "0");
     let scheduleRow = "";
     if (!isDuplicateSchedule_(scheduleSheet, staffName, user.name, dateText)) {
-      bumpReadCache_("assignmentSchedule");
+      bumpReadCache_("schedules");
       scheduleSheet.appendRow([
         now, staffName, user.name, dateText,
         "初回訪問（利用者選択） " + timeText,
@@ -240,6 +241,7 @@ function bookFirstVisitOption_(ss, user, liffLineUserId, candidateId, optionInde
       FIRST_VISIT_BOOKED, firstVisitOptionKey_(option.date), now, liffLineUserId, scheduleRow
     ]]);
     SpreadsheetApp.flush();
+    bumpReadCache_("firstVisit");
     booked = { staffName: staffName, date: option.date, staffId: String(item.row[4]) };
   } finally {
     lock.releaseLock();

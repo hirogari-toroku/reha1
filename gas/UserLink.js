@@ -96,6 +96,7 @@ function userLinkConfirmAccount(input) {
     sheet.getRange(rowNumber, 12).setValue(user.name);
     sheet.getRange(rowNumber, 6).setValue("連携済み");
     SpreadsheetApp.flush();
+    bumpReadCache_("userLinks");
     return { message: user.name + "様の「" + relation + "」として登録しました。予約確認を開き直すか、予約を更新すると表示されます。メッセージは送信していません。" };
   } finally { lock.releaseLock(); }
 }
@@ -129,10 +130,21 @@ function userLinkCapturePending_(ss, profile) {
     if (rowNumber > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), 100);
     sheet.getRange(rowNumber, 1, 1, 14).setValues([row]);
     SpreadsheetApp.flush();
+    bumpReadCache_("userLinks");
   } finally { lock.releaseLock(); }
 }
 
+// The link table and 利用者マスタ are read on every screen open; cache the resolved
+// user for two minutes, refreshed as soon as a link row is written.
 function userLinkResolve_(ss, id) {
+  const cached = cachedRead_("userLinkResolve:" + id, () => {
+    const resolved = readUserLinkResolve_(ss, id);
+    return resolved ? { user: resolved } : { user: null };
+  }, { versions: ["userLinks"], ttl: 120 });
+  return cached.user;
+}
+
+function readUserLinkResolve_(ss, id) {
   const rows = userLinkSheet_(ss).getDataRange().getValues().slice(1).filter(row => row[4] === id);
   if (!rows.length) return null;
   if (rows.length === 1 && rows[0][3] === "未確認" && rows[0][5] === "未連携") return null;
@@ -144,6 +156,7 @@ function userLinkRequest_(data) {
   let diagnosticProfile = null;
   try {
     const profile = userLinkVerify_(data.accessToken);
+    markLiffPhase_("lineVerify");
     diagnosticProfile = profile;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     if (getStaffNameCached_(ss, profile.userId) !== "未登録") userLinkFail_("スタッフの方は通常の予約確認ページから開き直してください。");
@@ -153,19 +166,33 @@ function userLinkRequest_(data) {
       logUserLinkStage_(data, "pending_saved", profile);
       return { success: false, pending: true, schedules: [], message: "LINE情報を受け付けました。管理者が確認・登録後に予定を表示します。公式LINEへ利用者様のお名前と続柄をお知らせください。" };
     }
+    markLiffPhase_("resolved");
     const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
     if (!scheduleSheet) userLinkFail_("訪問予定を確認できません。管理者へご連絡ください。");
-    const visits = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), "", user.name, new Date(getLiffScheduleDateWindow_().startTime));
-    const items = collectActiveSchedulesForUser_(scheduleSheet, user.name, visits);
-    // Return only the fields rendered to users; never expose chart or staff-folder URLs.
-    const schedules = items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText }));
-    const coupon = getCouponDisplayMap_(ss)[normalizeName_(user.name)] || null;
-    let firstVisitOffer = null;
-    try {
-      firstVisitOffer = getFirstVisitOfferForUser_(ss, user);
-    } catch (offerError) {
-      firstVisitOffer = null;
-    }
+    // Everything below is read-only display data, refreshed as soon as a visit,
+    // schedule, coupon or first-visit offer is written.
+    const view = cachedRead_("userView:" + user.id, () => {
+      const visits = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), "", user.name, new Date(getLiffScheduleDateWindow_().startTime));
+      markLiffPhase_("visits");
+      const items = collectActiveSchedulesForUser_(scheduleSheet, user.name, visits);
+      markLiffPhase_("schedules");
+      let offer = null;
+      try {
+        offer = getFirstVisitOfferForUser_(ss, user);
+      } catch (offerError) {
+        offer = null;
+      }
+      return {
+        // Return only the fields rendered to users; never expose chart or staff-folder URLs.
+        schedules: items.map(item => ({ visitDate: item.visitDate, status: item.status, staffName: item.staffName, updatedAt: item.updatedAt, kind: item.kind, lastVisitText: item.lastVisitText })),
+        coupon: getCouponDisplayMap_(ss)[normalizeName_(user.name)] || null,
+        firstVisitOffer: offer
+      };
+    }, { versions: ["schedules", "couponDisplay", "firstVisit"] });
+    markLiffPhase_("view");
+    const schedules = view.schedules;
+    const coupon = view.coupon;
+    const firstVisitOffer = view.firstVisitOffer;
     // Normal viewing is read-only; pending registrations and failures retain logs.
     return { success: true, linked: true, userName: user.name, schedules: schedules, coupon: coupon, firstVisitOffer: firstVisitOffer, message: schedules.length || firstVisitOffer ? "" : "対象期間内の予約はありません。" };
   } catch (error) {
