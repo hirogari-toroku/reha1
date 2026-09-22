@@ -2106,12 +2106,19 @@ function ensureScheduleStatusColumns_(sheet) {
     { column: 11, name: "更新内容" }
   ];
 
-  labels.forEach(label => {
-    const cell = sheet.getRange(1, label.column);
-    if (!String(cell.getValue() || "").trim()) {
-      cell.setValue(label.name);
-    }
+  // I1:K1 in one read; the common case (headers already present) then writes nothing.
+  const headerRange = sheet.getRange(1, labels[0].column, 1, labels.length);
+  const current = headerRange.getValues()[0];
+  let missing = false;
+  const next = labels.map((label, index) => {
+    if (String(current[index] || "").trim()) return current[index];
+    missing = true;
+    return label.name;
   });
+
+  if (missing) {
+    headerRange.setValues([next]);
+  }
 }
 
 function updateLinkedScheduleVisitStatus_(sheet, rowNumber, visitType, visitDate, visitTime, now) {
@@ -4971,6 +4978,11 @@ function applyLineUserDirectoryToMastersCore_(ss) {
   let staffUpdatedCount = 0;
   let userUpdatedCount = 0;
   let skippedCount = 0;
+  const directoryUpdates = [];
+  const setDirectoryResult = (rowNumber, status, note) => {
+    directoryUpdates.push({ rowNumber: rowNumber, column: 10, value: status });
+    directoryUpdates.push({ rowNumber: rowNumber, column: 13, value: note });
+  };
 
   rows.forEach((row, index) => {
     const rowNumber = index + 2;
@@ -4991,8 +5003,7 @@ function applyLineUserDirectoryToMastersCore_(ss) {
       );
       staffUpdatedCount += result.updated ? 1 : 0;
       skippedCount += result.skipped ? 1 : 0;
-      directorySheet.getRange(rowNumber, 10).setValue(result.status);
-      directorySheet.getRange(rowNumber, 13).setValue(result.note);
+      setDirectoryResult(rowNumber, result.status, result.note);
       return;
     }
 
@@ -5000,17 +5011,16 @@ function applyLineUserDirectoryToMastersCore_(ss) {
       const result = applyLineUserDirectoryToUserRow_();
       userUpdatedCount += result.updated ? 1 : 0;
       skippedCount += result.skipped ? 1 : 0;
-      directorySheet.getRange(rowNumber, 10).setValue(result.status);
-      directorySheet.getRange(rowNumber, 13).setValue(result.note);
+      setDirectoryResult(rowNumber, result.status, result.note);
       return;
     }
 
     if (type) {
       skippedCount++;
-      directorySheet.getRange(rowNumber, 10).setValue("反映対象外");
-      directorySheet.getRange(rowNumber, 13).setValue("候補が複数、またはマスタ行が特定できないため手動確認してください。");
+      setDirectoryResult(rowNumber, "反映対象外", "候補が複数、またはマスタ行が特定できないため手動確認してください。");
     }
   });
+  applyCellUpdates_(directorySheet, directoryUpdates);
 
   return {
     success: true,
@@ -5049,6 +5059,65 @@ function updateLineUserDirectoryLinksWithoutAlert_(ss, sheet) {
   return updatedRows.length;
 }
 
+// Writes {rowNumber, column (1-based), value} updates with as few Range calls as possible:
+// same-row neighbouring columns become one segment, and identical segments on consecutive
+// rows become one block. Only the listed cells are written, so untouched cells (and any
+// formulas in them) are never rewritten.
+function applyCellUpdates_(sheet, updates) {
+  if (!updates || !updates.length) return 0;
+
+  const byRow = {};
+  updates.forEach(update => {
+    const rowNumber = Number(update.rowNumber);
+    const column = Number(update.column);
+    if (!(rowNumber >= 1) || !(column >= 1)) return;
+    if (!byRow[rowNumber]) byRow[rowNumber] = {};
+    byRow[rowNumber][column] = update.value;
+  });
+
+  const segments = [];
+  Object.keys(byRow).map(Number).sort((a, b) => a - b).forEach(rowNumber => {
+    const cells = byRow[rowNumber];
+    const columns = Object.keys(cells).map(Number).sort((a, b) => a - b);
+    let start = 0;
+    for (let i = 1; i <= columns.length; i++) {
+      if (i < columns.length && columns[i] === columns[i - 1] + 1) continue;
+      const cols = columns.slice(start, i);
+      segments.push({ rowNumber: rowNumber, column: cols[0], values: cols.map(col => cells[col]) });
+      start = i;
+    }
+  });
+
+  const blocks = [];
+  segments.forEach(segment => {
+    const last = blocks[blocks.length - 1];
+    if (
+      last &&
+      last.column === segment.column &&
+      last.rows[0].length === segment.values.length &&
+      last.rowNumber + last.rows.length === segment.rowNumber
+    ) {
+      last.rows.push(segment.values);
+    } else {
+      blocks.push({ rowNumber: segment.rowNumber, column: segment.column, rows: [segment.values] });
+    }
+  });
+
+  blocks.forEach(block => {
+    sheet.getRange(block.rowNumber, block.column, block.rows.length, block.rows[0].length).setValues(block.rows);
+  });
+  return blocks.length;
+}
+
+// Fills blank cells of row 1 with the given headers (A1 onward) using one read and at most one write per run.
+function fillMissingHeaders_(sheet, headers) {
+  if (!headers.length) return;
+  const current = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+  applyCellUpdates_(sheet, headers
+    .map((header, index) => ({ rowNumber: 1, column: index + 1, value: header }))
+    .filter(update => !String(current[update.column - 1] || "").trim()));
+}
+
 function applyLineUserDirectoryToStaffRow_(sheet, cols, rowNumber, displayName, messagingLineUserId, liffLineUserId) {
   const row = sheet.getRange(rowNumber, 1, 1, Math.max(sheet.getLastColumn(), 12)).getValues()[0];
   const updates = [];
@@ -5057,7 +5126,7 @@ function applyLineUserDirectoryToStaffRow_(sheet, cols, rowNumber, displayName, 
   addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineDisplayName, displayName, "LINE表示名");
   addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineUserId, messagingLineUserId, "LINEユーザーID");
   addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.liffLineUserId, liffLineUserId, "LIFF用LINEユーザーID");
-  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+  applyCellUpdates_(sheet, updates);
 
   return {
     updated: updates.length > 0,
@@ -6058,6 +6127,13 @@ function reconcileNyushukkinUsersCore_(ss) {
 
   const userMap = getUserKanaMap_(userSheet);
   let updatedCount = 0;
+  // G:H (照合利用者・照合状態) are rewritten in one call instead of two setValue calls per row.
+  const matchColumns = values.slice(1).map(row => [
+    row[6] === undefined ? "" : row[6],
+    row[7] === undefined ? "" : row[7]
+  ]);
+  let firstChanged = -1;
+  let lastChanged = -1;
 
   for (let i = 1; i < values.length; i++) {
     const summary = values[i][1];
@@ -6075,10 +6151,20 @@ function reconcileNyushukkinUsersCore_(ss) {
     });
 
     if (matchedUser) {
-      nyushukkinSheet.getRange(i + 1, 7).setValue(matchedUser);
-      nyushukkinSheet.getRange(i + 1, 8).setValue("照合済");
+      const current = matchColumns[i - 1];
+      if (current[0] !== matchedUser || current[1] !== "照合済") {
+        matchColumns[i - 1] = [matchedUser, "照合済"];
+        if (firstChanged < 0) firstChanged = i - 1;
+        lastChanged = i - 1;
+      }
       updatedCount++;
     }
+  }
+
+  if (firstChanged >= 0) {
+    nyushukkinSheet
+      .getRange(firstChanged + 2, 7, lastChanged - firstChanged + 1, 2)
+      .setValues(matchColumns.slice(firstChanged, lastChanged + 1));
   }
 
   return updatedCount;
@@ -7474,6 +7560,7 @@ function fillMissingEntityIds_(sheet, idCol, nameCol, prefix) {
   const existingIds = {};
   let maxNumber = 0;
   let addedCount = 0;
+  const idUpdates = [];
 
   values.forEach(row => {
     const currentId = String(row[idCol] || "").trim();
@@ -7498,9 +7585,10 @@ function fillMissingEntityIds_(sheet, idCol, nameCol, prefix) {
     } while (existingIds[nextId]);
 
     existingIds[nextId] = true;
-    sheet.getRange(index + 2, idCol + 1).setValue(nextId);
+    idUpdates.push({ rowNumber: index + 2, column: idCol + 1, value: nextId });
     addedCount++;
   });
+  applyCellUpdates_(sheet, idUpdates);
 
   return { addedCount: addedCount };
 }
@@ -7519,6 +7607,7 @@ function ensureStaffUserMasterIds_(ss) {
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
   let updatedCount = 0;
   let skippedCount = 0;
+  const idUpdates = [];
 
   values.forEach((row, index) => {
     const rowNumber = index + 2;
@@ -7529,18 +7618,19 @@ function ensureStaffUserMasterIds_(ss) {
     let updated = false;
 
     if (staffName && staffId && !String(row[staffIdCol] || "").trim()) {
-      sheet.getRange(rowNumber, staffIdCol + 1).setValue(staffId);
+      idUpdates.push({ rowNumber: rowNumber, column: staffIdCol + 1, value: staffId });
       updated = true;
     }
 
     if (userName && userId && !String(row[userIdCol] || "").trim()) {
-      sheet.getRange(rowNumber, userIdCol + 1).setValue(userId);
+      idUpdates.push({ rowNumber: rowNumber, column: userIdCol + 1, value: userId });
       updated = true;
     }
 
     if (updated) updatedCount++;
     if ((staffName && !staffId) || (userName && !userId)) skippedCount++;
   });
+  applyCellUpdates_(sheet, idUpdates);
 
   return {
     updatedCount: updatedCount,
@@ -7848,6 +7938,7 @@ function syncUserMasterReferralColumns_(ss) {
   const values = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, userSheet.getLastColumn()).getValues();
   let updatedCount = 0;
   let unmatchedCount = 0;
+  const referralUpdates = [];
 
   values.forEach((row, index) => {
     const rowNumber = index + 2;
@@ -7859,31 +7950,32 @@ function syncUserMasterReferralColumns_(ss) {
 
     if (referrer) {
       if (referrerIdCol >= 0 && !String(row[referrerIdCol] || "").trim()) {
-        userSheet.getRange(rowNumber, referrerIdCol + 1).setValue(referrer.id);
+        referralUpdates.push({ rowNumber: rowNumber, column: referrerIdCol + 1, value: referrer.id });
         updated = true;
       }
       if (referrerNameCol >= 0 && !String(row[referrerNameCol] || "").trim()) {
-        userSheet.getRange(rowNumber, referrerNameCol + 1).setValue(referrer.name);
+        referralUpdates.push({ rowNumber: rowNumber, column: referrerNameCol + 1, value: referrer.name });
         updated = true;
       }
       if (referrerTypeCol >= 0 && !String(row[referrerTypeCol] || "").trim()) {
-        userSheet.getRange(rowNumber, referrerTypeCol + 1).setValue("紹介者マスタ");
+        referralUpdates.push({ rowNumber: rowNumber, column: referrerTypeCol + 1, value: "紹介者マスタ" });
         updated = true;
       }
     } else {
       unmatchedCount++;
       if (referrerNameCol >= 0 && !String(row[referrerNameCol] || "").trim()) {
-        userSheet.getRange(rowNumber, referrerNameCol + 1).setValue(rawReferrerName);
+        referralUpdates.push({ rowNumber: rowNumber, column: referrerNameCol + 1, value: rawReferrerName });
         updated = true;
       }
       if (referrerTypeCol >= 0 && !String(row[referrerTypeCol] || "").trim()) {
-        userSheet.getRange(rowNumber, referrerTypeCol + 1).setValue("紹介者マスタ未登録");
+        referralUpdates.push({ rowNumber: rowNumber, column: referrerTypeCol + 1, value: "紹介者マスタ未登録" });
         updated = true;
       }
     }
 
     if (updated) updatedCount++;
   });
+  applyCellUpdates_(userSheet, referralUpdates);
 
   return {
     updatedCount: updatedCount,
@@ -9036,12 +9128,9 @@ function ensureStaffUserMasterSheet_(ss) {
     return sheet;
   }
 
+  fillMissingHeaders_(sheet, headers.slice(0, 8));
   headers.forEach((header, index) => {
-    if (index < 8) {
-      if (!String(sheet.getRange(1, index + 1).getValue() || "").trim()) {
-        sheet.getRange(1, index + 1).setValue(header);
-      }
-    } else {
+    if (index >= 8) {
       ensureHeaderColumn_(sheet, header);
     }
   });
@@ -9460,7 +9549,7 @@ function fillStaffReceiverNamesFromKanaCore_(ss) {
     });
   });
 
-  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+  applyCellUpdates_(sheet, updates);
   const statusResult = updateStaffBankRegistrationStatus_(ss);
 
   return {
@@ -9702,11 +9791,7 @@ function ensureStaffRegistrationLogSheet_(ss) {
     return sheet;
   }
 
-  headers.forEach((header, index) => {
-    if (!String(sheet.getRange(1, index + 1).getValue() || "").trim()) {
-      sheet.getRange(1, index + 1).setValue(header);
-    }
-  });
+  fillMissingHeaders_(sheet, headers);
 
   return sheet;
 }
@@ -9738,11 +9823,7 @@ function ensureUserRegistrationLogSheet_(ss) {
     return sheet;
   }
 
-  headers.forEach((header, index) => {
-    if (!String(sheet.getRange(1, index + 1).getValue() || "").trim()) {
-      sheet.getRange(1, index + 1).setValue(header);
-    }
-  });
+  fillMissingHeaders_(sheet, headers);
 
   return sheet;
 }
@@ -9901,7 +9982,7 @@ function prepareStaffFolderIdsCore_(ss, options) {
     }
   });
 
-  updates.forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+  applyCellUpdates_(sheet, updates);
   const folderIdUpdateCount = updates.filter(update => update.column === staffCols.payrollFolderId + 1).length;
 
   return {
@@ -10064,8 +10145,8 @@ function updateStaffBankInfoFromQuestionnaire_(sheet, rowNumber, headerMap, staf
   ], -1) || buildReceiverNameKanaFromStaffMasterRow_(row, headerMap);
   addBankCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.receiverName, normalizeReceiverNameKana_(receiverName), "受取人名");
 
+  applyCellUpdates_(sheet, updates);
   updates.forEach(update => {
-    sheet.getRange(update.rowNumber, update.column).setValue(update.value);
     row[update.column - 1] = update.value;
   });
 
@@ -10226,11 +10307,9 @@ function ensureStaffMasterHeaders_(sheet) {
 
   const current = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
 
-  headers.forEach((header, index) => {
-    if (!current[index]) {
-      sheet.getRange(1, index + 1).setValue(header);
-    }
-  });
+  applyCellUpdates_(sheet, headers
+    .map((header, index) => ({ rowNumber: 1, column: index + 1, value: header }))
+    .filter(update => !current[update.column - 1]));
 }
 
 function ensureStaffMasterProfileColumns_(sheet) {
@@ -10357,7 +10436,7 @@ function updateExistingStaffFromQuestionnaire_(sheet, rowNumber, headerMap, staf
     addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.liffLineUserId, lineMatch.liffLineUserId, "LIFF用LINEユーザーID");
   }
 
-  profileUpdates.concat(updates).forEach(update => sheet.getRange(update.rowNumber, update.column).setValue(update.value));
+  applyCellUpdates_(sheet, profileUpdates.concat(updates));
 
   return {
     updated: profileUpdates.length + updates.length > 0,

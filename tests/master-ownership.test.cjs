@@ -25,7 +25,7 @@ test('directory sync keeps staff updates but routes users to confirmed links', (
   const c = context();
   const row = type => ['', '', 'msg', 'liff', 'display', type, '', 2, 2];
   const directory = {getLastRow: () => 3, getRange: () => ({
-    getValues: () => [row('利用者'), row('スタッフ')], setValue() {}
+    getValues: () => [row('利用者'), row('スタッフ')], setValue() {}, setValues() {}
   })};
   c.ensureLineUserDirectorySheet_ = () => directory;
   c.updateLineUserDirectoryLinksWithoutAlert_ = () => {};
