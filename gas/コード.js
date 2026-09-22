@@ -64,6 +64,13 @@ const LIFF_SCHEDULE_FUTURE_MONTHS = 6;
 const STAFF_COL_NAME = 0;
 const STAFF_COL_LINE_DISPLAY_NAME = 1;
 const STAFF_COL_LINE_USER_ID = 2;
+// LINE IDs that the system links automatically by display/form name are held as 未確認
+// until an admin approves them, so a stranger who copies a staff member's name cannot
+// become that staff member. Blank (all links made before this column existed, and IDs
+// entered by hand) counts as confirmed.
+const STAFF_LINE_LINK_CONFIRM_HEADER = "LINE紐づけ確認";
+const STAFF_LINE_LINK_PENDING = "未確認";
+const STAFF_LINE_LINK_CONFIRMED = "確認済";
 const STAFF_COL_LIFF_LINE_USER_ID = 3;
 const STAFF_COL_BANK_CODE = 5;
 const STAFF_COL_BRANCH_CODE = 6;
@@ -499,6 +506,16 @@ function doGet(e) {
     return liffResponse_(e, adminSetupUserQuestionnaireAutoImportTriggerFromLiff_(
       e.parameter.lineUserId,
       e.parameter.displayName
+    ));
+  }
+
+  if (action === "adminConfirmStaffLineLink" || action === "adminRejectStaffLineLink") {
+    return liffResponse_(e, adminResolveStaffLineLinkFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName,
+      e.parameter.staffRow,
+      e.parameter.staffName,
+      action === "adminConfirmStaffLineLink"
     ));
   }
 
@@ -2702,8 +2719,26 @@ function getStaffMasterColumnMap_(sheet) {
     branchName: getColumnIndex_(headerMap, ["支店名"], -1),
     payrollFolderId: getColumnIndex_(headerMap, [STAFF_FOLDER_ID_HEADER, LEGACY_PAYROLL_FOLDER_ID_HEADER], STAFF_COL_PAYROLL_FOLDER_ID),
     address: getColumnIndex_(headerMap, ["住所"], STAFF_COL_ADDRESS),
-    bankRegistrationStatus: getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1)
+    bankRegistrationStatus: getColumnIndex_(headerMap, [STAFF_BANK_REGISTRATION_STATUS_HEADER], -1),
+    lineLinkConfirm: getColumnIndex_(headerMap, [STAFF_LINE_LINK_CONFIRM_HEADER], -1)
   };
+}
+
+function isStaffLineLinkPending_(row, cols) {
+  return !!cols && cols.lineLinkConfirm >= 0 &&
+    String(row[cols.lineLinkConfirm] || "").trim() === STAFF_LINE_LINK_PENDING;
+}
+
+// When an automatic update fills a LINE ID column, also mark the row 未確認.
+function addStaffLineLinkPendingUpdate_(sheet, cols, updates, rowNumber) {
+  const idColumns = [cols.lineUserId + 1, cols.liffLineUserId + 1];
+  const fillsId = updates.some(update => update.rowNumber === rowNumber && idColumns.indexOf(update.column) !== -1);
+  if (!fillsId) return false;
+
+  const confirmCol = cols.lineLinkConfirm >= 0 ? cols.lineLinkConfirm : ensureHeaderColumn_(sheet, STAFF_LINE_LINK_CONFIRM_HEADER);
+  cols.lineLinkConfirm = confirmCol;
+  updates.push({ rowNumber: rowNumber, column: confirmCol + 1, value: STAFF_LINE_LINK_PENDING });
+  return true;
 }
 
 function getStaffNameCached_(ss, userId) {
@@ -2732,8 +2767,8 @@ function getStaffName_(ss, userId) {
   const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
   if (!sheet) return "未登録";
 
-  const values = sheet.getDataRange().getValues();
   const cols = getStaffMasterColumnMap_(sheet);
+  const values = sheet.getDataRange().getValues().filter((row, index) => index === 0 || !isStaffLineLinkPending_(row, cols));
   const targetUserId = String(userId || "").trim();
 
   if (!targetUserId) return "未登録";
@@ -5320,7 +5355,9 @@ function applyLineUserDirectoryToStaffRow_(sheet, cols, rowNumber, displayName, 
   addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineDisplayName, displayName, "LINE表示名");
   addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.lineUserId, messagingLineUserId, "LINEユーザーID");
   addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, cols.liffLineUserId, liffLineUserId, "LIFF用LINEユーザーID");
+  const pending = addStaffLineLinkPendingUpdate_(sheet, cols, updates, rowNumber);
   applyCellUpdates_(sheet, updates);
+  if (pending) conflicts.push("LINE紐づけは管理者の承認待ち");
 
   return {
     updated: updates.length > 0,
@@ -6996,7 +7033,9 @@ function updateLiffDisplayMaster(suppressAlert) {
 
   for (let i = 1; i < staffValues.length; i++) {
     const staffName = String(staffValues[i][cols.name] || "").trim();
-    const liffLineUserId = String(staffValues[i][cols.liffLineUserId] || "").trim();
+    const liffLineUserId = isStaffLineLinkPending_(staffValues[i], cols)
+      ? ""
+      : String(staffValues[i][cols.liffLineUserId] || "").trim();
 
     if (!staffName) continue;
 
@@ -8458,6 +8497,7 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
     unassignedUsers: relationshipData.unassignedUsers,
     issues: relationshipData.issues,
     unlinkedLineUsers: unlinkedLineUsers,
+    pendingStaffLineLinks: getPendingStaffLineLinks_(ss),
     message: ""
   };
 }
@@ -8801,6 +8841,63 @@ function adminSetupUserQuestionnaireAutoImportTriggerFromLiff_(lineUserId, displ
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return setupUserQuestionnaireAutoImportTriggerCore_();
+}
+
+function getPendingStaffLineLinks_(ss) {
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const cols = getStaffMasterColumnMap_(sheet);
+  if (cols.lineLinkConfirm < 0) return [];
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+  const pending = [];
+  values.forEach((row, index) => {
+    if (!isStaffLineLinkPending_(row, cols)) return;
+    pending.push({
+      staffRow: index + 2,
+      staffName: String(row[cols.name] || "").trim(),
+      lineDisplayName: String(row[cols.lineDisplayName] || "").trim(),
+      hasMessagingLineUserId: !!String(row[cols.lineUserId] || "").trim(),
+      hasLiffLineUserId: !!String(row[cols.liffLineUserId] || "").trim()
+    });
+  });
+  return pending;
+}
+
+// 承認 marks the link 確認済 so the staff member can use LINE/LIFF. 取り消し clears the
+// automatically filled LINE columns so the real person can register again.
+function adminResolveStaffLineLinkFromLiff_(lineUserId, displayName, staffRow, staffName, approve) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+
+  const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
+  const rowNumber = Number(staffRow);
+  if (!sheet || !(rowNumber >= 2) || rowNumber > sheet.getLastRow()) {
+    return { success: false, message: "対象のスタッフが見つかりません。画面を更新してください。" };
+  }
+
+  const cols = getStaffMasterColumnMap_(sheet);
+  const row = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const rowStaffName = String(row[cols.name] || "").trim();
+  if (normalizeName_(rowStaffName) !== normalizeName_(staffName) || !isStaffLineLinkPending_(row, cols)) {
+    return { success: false, message: "対象のスタッフの状態が変わっています。画面を更新してください。" };
+  }
+
+  if (approve) {
+    applyCellUpdates_(sheet, [{ rowNumber: rowNumber, column: cols.lineLinkConfirm + 1, value: STAFF_LINE_LINK_CONFIRMED }]);
+  } else {
+    applyCellUpdates_(sheet, [cols.lineDisplayName, cols.lineUserId, cols.liffLineUserId, cols.lineLinkConfirm]
+      .filter(col => col >= 0)
+      .map(col => ({ rowNumber: rowNumber, column: col + 1, value: "" })));
+  }
+  updateLiffDisplayMaster(true);
+
+  return {
+    success: true,
+    message: approve
+      ? rowStaffName + " さんのLINE紐づけを承認しました。"
+      : rowStaffName + " さんのLINE紐づけを取り消しました。本人にもう一度スタッフ登録から進めてもらってください。"
+  };
 }
 
 function adminCreateAndShareStaffFolderFromLiff_(lineUserId, displayName, staffName) {
@@ -9494,6 +9591,7 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
   ensureStaffMasterHeaders_(staffSheet);
   ensureStaffMasterProfileColumns_(staffSheet);
   const staffPricingCol = ensureHeaderColumn_(staffSheet, STAFF_PRICING_HEADER);
+  ensureHeaderColumn_(staffSheet, STAFF_LINE_LINK_CONFIRM_HEADER);
 
   const sourceValues = sourceSheet.getDataRange().getValues();
   const sourceHeaderMap = getHeaderColumnMap_(sourceSheet);
@@ -9541,6 +9639,9 @@ function importStaffQuestionnaireToStaffMasterCore_(ss) {
       setRowValueByHeaders_(row, staffHeaderMap, ["LINE表示名"], lineMatch.displayName, STAFF_COL_LINE_DISPLAY_NAME);
       setRowValueByHeaders_(row, staffHeaderMap, ["LINEユーザーID", "Messaging API LINEユーザーID"], lineMatch.messagingLineUserId, STAFF_COL_LINE_USER_ID);
       setRowValueByHeaders_(row, staffHeaderMap, ["LIFF用LINEユーザーID", "LIFF LINEユーザーID"], lineMatch.liffLineUserId, STAFF_COL_LIFF_LINE_USER_ID);
+      if (lineMatch.messagingLineUserId || lineMatch.liffLineUserId) {
+        setRowValueByHeaders_(row, staffHeaderMap, [STAFF_LINE_LINK_CONFIRM_HEADER], STAFF_LINE_LINK_PENDING, -1);
+      }
       lineMatchedCount++;
     }
     if (staffCols.bankRegistrationStatus >= 0) {
@@ -10628,6 +10729,7 @@ function updateExistingStaffFromQuestionnaire_(sheet, rowNumber, headerMap, staf
     addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.lineDisplayName, lineMatch.displayName, "LINE表示名");
     addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.lineUserId, lineMatch.messagingLineUserId, "LINEユーザーID");
     addCellUpdateIfEmpty_(updates, conflicts, row, rowNumber, staffCols.liffLineUserId, lineMatch.liffLineUserId, "LIFF用LINEユーザーID");
+    addStaffLineLinkPendingUpdate_(sheet, staffCols, updates, rowNumber);
   }
 
   applyCellUpdates_(sheet, profileUpdates.concat(updates));

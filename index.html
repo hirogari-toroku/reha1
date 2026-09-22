@@ -1030,6 +1030,10 @@
 
     <div id="adminForm" class="hidden">
       <div id="adminSummary" class="admin-summary">管理情報を読み込み中...</div>
+      <div id="adminPendingStaffLinksSection" class="hidden">
+        <div class="admin-section-title">LINE紐づけの承認待ち</div>
+        <div id="adminPendingStaffLinks" class="admin-target-list"></div>
+      </div>
       <div class="admin-section-title">データ整備</div>
       <div class="admin-toolbox">
         <div class="admin-toolbox-note">
@@ -1864,8 +1868,10 @@
         { label: "紐づけ済み", value: data.relationshipCount || 0, kind: "" },
         { label: "確認が必要", value: data.issueCount || 0, kind: (data.issueCount || 0) ? "danger" : "" },
         { label: "未担当の利用者", value: (data.unassignedUsers || []).length, kind: (data.unassignedUsers || []).length ? "warn" : "" },
-        { label: "LINE候補", value: data.unlinkedCount || 0, kind: (data.unlinkedCount || 0) ? "warn" : "" }
+        { label: "LINE候補", value: data.unlinkedCount || 0, kind: (data.unlinkedCount || 0) ? "warn" : "" },
+        { label: "承認待ち", value: (data.pendingStaffLineLinks || []).length, kind: (data.pendingStaffLineLinks || []).length ? "danger" : "" }
       ]);
+      renderPendingStaffLineLinks(data.pendingStaffLineLinks || []);
 
       if (!(data.staffCards || []).length) {
         const empty = document.createElement("div");
@@ -2349,6 +2355,45 @@
       chip.className = "admin-chip" + (kind ? " " + kind : "");
       chip.textContent = text;
       return chip;
+    }
+
+    function renderPendingStaffLineLinks(items) {
+      const section = document.getElementById("adminPendingStaffLinksSection");
+      const area = document.getElementById("adminPendingStaffLinks");
+      if (!section || !area) return;
+      area.innerHTML = "";
+      section.classList.toggle("hidden", !items.length);
+
+      items.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "admin-target issue";
+        const text = document.createElement("div");
+        text.textContent =
+          "スタッフ：" + (item.staffName || "名前未設定") + "\n" +
+          "LINE表示名：" + (item.lineDisplayName || "未取得") + "\n" +
+          "表示名・氏名の一致で自動的に紐づきました。本人のLINEか確認してから承認してください。承認するまで、このLINEではスタッフ画面を使えません。";
+        text.style.whiteSpace = "pre-line";
+        card.appendChild(text);
+
+        const actions = document.createElement("div");
+        actions.className = "admin-action-row";
+        const approve = document.createElement("button");
+        approve.type = "button";
+        approve.textContent = "本人と確認できたので承認";
+        approve.onclick = () => runAdminAction("adminConfirmStaffLineLink", { staffRow: item.staffRow, staffName: item.staffName }, approve);
+        const reject = document.createElement("button");
+        reject.type = "button";
+        reject.className = "danger";
+        reject.textContent = "本人ではないので取り消し";
+        reject.onclick = () => {
+          if (!window.confirm(item.staffName + " さんのLINE紐づけを取り消しますか？")) return;
+          runAdminAction("adminRejectStaffLineLink", { staffRow: item.staffRow, staffName: item.staffName }, reject);
+        };
+        actions.appendChild(approve);
+        actions.appendChild(reject);
+        card.appendChild(actions);
+        area.appendChild(card);
+      });
     }
 
     function runAdminAction(action, extraParams, buttonEl) {
