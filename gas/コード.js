@@ -407,7 +407,14 @@ function doGet(e) {
 
   // Every other action acts as the LINE account in lineUserId, so that ID must come
   // from a LIFF access token LINE itself vouches for, not from what the page sends.
+  const requestStart = Date.now();
   const identity = verifyLiffRequestIdentity_(e.parameter.accessToken);
+  liffRequestTiming_ = {
+    start: requestStart,
+    verifyMs: Date.now() - requestStart,
+    action: action,
+    lineUserId: identity ? identity.userId : ""
+  };
   if (!identity) {
     return liffResponse_(e, {
       success: false,
@@ -679,8 +686,28 @@ function doGet(e) {
   });
 }
 
+// Set by doGet so every response can report how long the server spent, and slow
+// requests leave a trace in LIFF操作ログ for diagnosing slow screens.
+let liffRequestTiming_ = null;
+const LIFF_SLOW_REQUEST_MS = 8000;
+
 function liffResponse_(e, data) {
   const callback = e && e.parameter ? e.parameter.callback : "";
+  if (liffRequestTiming_ && data && typeof data === "object" && !Array.isArray(data)) {
+    const serverMs = Date.now() - liffRequestTiming_.start;
+    data.serverMs = serverMs;
+    data.verifyMs = liffRequestTiming_.verifyMs;
+    if (serverMs >= LIFF_SLOW_REQUEST_MS) {
+      try {
+        saveLiffOperationLog_(SpreadsheetApp.getActiveSpreadsheet(), "slow:" + liffRequestTiming_.action,
+          liffRequestTiming_.lineUserId || "", "", "", "", "", "", "遅延",
+          "サーバー処理 " + serverMs + "ms（うちLINE確認 " + liffRequestTiming_.verifyMs + "ms）", "");
+      } catch (error) {
+        // Timing logs must never break the response.
+      }
+    }
+    liffRequestTiming_ = null;
+  }
 
   if (callback) {
     return ContentService

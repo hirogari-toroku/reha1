@@ -1797,14 +1797,32 @@
         // The server acts only as the LINE account this token belongs to.
         const body = Object.fromEntries(params);
         body.accessToken = getLiffAccessToken();
-        const response = await fetch(GAS_URL, {
-          method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
-          body: JSON.stringify(body), signal: controller.signal,
-          credentials: "omit", referrerPolicy: "no-referrer"
-        });
-        if (!response.ok) throw new Error("通信結果を受信できませんでした。");
-        return await response.json();
+        const startedAt = Date.now();
+        try {
+          const response = await fetch(GAS_URL, {
+            method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" },
+            body: JSON.stringify(body), signal: controller.signal,
+            credentials: "omit", referrerPolicy: "no-referrer"
+          });
+          if (!response.ok) throw new Error("通信結果を受信できませんでした。");
+          const data = await response.json();
+          noteSlowRequest(body.action, Date.now() - startedAt, data);
+          return data;
+        } catch (error) {
+          const seconds = Math.round((Date.now() - startedAt) / 1000);
+          throw new Error((error.name === "AbortError" ? "サーバーの応答がありませんでした" : error.message) + "（" + seconds + "秒）");
+        }
       } finally { clearTimeout(timer); }
+    }
+
+    // Shown after a slow load so the user can report where the time went.
+    let slowRequestNotice = "";
+    function noteSlowRequest(action, clientMs, data) {
+      if (clientMs < 8000) return;
+      const server = data && typeof data.serverMs === "number"
+        ? "（サーバー処理 " + Math.round(data.serverMs / 1000) + "秒・LINE確認 " + Math.round((data.verifyMs || 0) / 1000) + "秒）"
+        : "";
+      slowRequestNotice = "読み込みに " + Math.round(clientMs / 1000) + "秒かかりました" + server + " [" + action + "]";
     }
 
     function getLiffAccessToken() {
@@ -1931,6 +1949,7 @@
         .then(data => {
           renderAdminDashboard(data);
           if (!silent) setMessage(data.message || "");
+          if (slowRequestNotice) { setMessage(((data.message || "") + "\n" + slowRequestNotice).trim()); slowRequestNotice = ""; }
           return data;
         })
         .catch(error => {
@@ -2982,6 +3001,10 @@
             renderScheduleList();
             if (scheduleItems.length === 0) setMessage("対象期間内の予定はありません。");
             initialSchedulesLoadedFromCommonInit = true;
+          }
+          if (slowRequestNotice) {
+            setMessage(((scheduleItems.length === 0 ? "対象期間内の予定はありません。" : "") + "\n" + slowRequestNotice).trim());
+            slowRequestNotice = "";
           }
         });
       })
