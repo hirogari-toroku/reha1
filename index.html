@@ -1650,11 +1650,14 @@
     }
 
     let userLinkLoadPromise = null;
+    let userLoadStartedEarly = null;
     let userCoupon = null;
     let userFirstVisitOffer = null;
 
-    function loadUserSchedules(silent) {
-      if (!lineUserId) return Promise.resolve();
+    // The booking screen's request only needs the LIFF access token, so it can run
+    // before liff.getProfile() has come back (ignoreMissingId).
+    function loadUserSchedules(silent, ignoreMissingId) {
+      if (!lineUserId && !ignoreMissingId) return Promise.resolve();
       if (userLinkLoadPromise) return userLinkLoadPromise;
       const controller = new AbortController();
       reportLiffStage("user_request");
@@ -3162,7 +3165,10 @@
             return;
           }
 
-          return liff.getProfile();
+          // Start the booking screen's own request in parallel with the profile call.
+          const profilePromise = liff.getProfile();
+          if (appMode === "user") userLoadStartedEarly = loadUserSchedules(true, true);
+          return profilePromise;
         })
         .then(profile => {
           if (!profile) return;
@@ -3172,7 +3178,7 @@
           document.getElementById("staff").innerText =
             (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : appMode === "important" ? "重要事項説明" : "スタッフ情報") +
             "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
-          if (appMode === "user") return loadUserSchedules(true);
+          if (appMode === "user") return userLoadStartedEarly || loadUserSchedules(true);
           if (appMode === "register") return logRegisterLiffLogin(profile.displayName);
           if (appMode === "staff-register") return logStaffRegisterLiffLogin(profile.displayName);
           if (appMode === "admin") return loadAdminDashboard(true);
