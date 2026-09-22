@@ -3,4 +3,5 @@
 node_modules/
 npm-debug.log*
 .DS_Store
-.claude/settings.local.json
+.claude/
+CLAUDE.md
