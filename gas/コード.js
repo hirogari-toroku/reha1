@@ -367,7 +367,7 @@ function doGet(e) {
 
   // Every other action acts as the LINE account in lineUserId, so that ID must come
   // from a LIFF access token LINE itself vouches for, not from what the page sends.
-  liffRequestTiming_ = { start: Date.now(), action: action, lineUserId: String(e.parameter.lineUserId || "") };
+  liffRequestTiming_ = { start: Date.now(), phases: [], action: action, lineUserId: String(e.parameter.lineUserId || "") };
 
   if (action === "adminSetupPricingPolicy") {
     return liffResponse_(e, adminSetupPricingPolicy_(e.parameter.lineUserId));
@@ -626,11 +626,19 @@ function doGet(e) {
 let liffRequestTiming_ = null;
 const LIFF_SLOW_REQUEST_MS = 8000;
 
+// Records elapsed ms at a named point of the current request (reported as serverPhases).
+function markLiffPhase_(name) {
+  if (liffRequestTiming_ && liffRequestTiming_.phases) {
+    liffRequestTiming_.phases.push(name + ":" + (Date.now() - liffRequestTiming_.start));
+  }
+}
+
 function liffResponse_(e, data) {
   const callback = e && e.parameter ? e.parameter.callback : "";
   if (liffRequestTiming_ && data && typeof data === "object" && !Array.isArray(data)) {
     const serverMs = Date.now() - liffRequestTiming_.start;
     data.serverMs = serverMs;
+    if (liffRequestTiming_.phases && liffRequestTiming_.phases.length) data.serverPhases = liffRequestTiming_.phases.join(" ");
     if (serverMs >= LIFF_SLOW_REQUEST_MS) {
       try {
         saveLiffOperationLog_(SpreadsheetApp.getActiveSpreadsheet(), "slow:" + liffRequestTiming_.action,
@@ -758,9 +766,13 @@ function initLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterDat
     return Object.assign({}, base, { schedules: [], message: "訪問予定シートがありません。" });
   }
 
+  markLiffPhase_("base");
   const visitStatusIndex = buildVisitStatusIndex_(ss.getSheetByName(VISIT_RESULT_SHEET_NAME), base.staffName, undefined, new Date(getLiffScheduleDateWindow_().startTime));
+  markLiffPhase_("visitIndex");
   const schedules = collectActiveSchedulesForStaff_(scheduleSheet, base.staffName, visitStatusIndex);
+  markLiffPhase_("schedules");
   enrichLiffScheduleItemsWithUserResources_(ss, schedules);
+  markLiffPhase_("enrich");
 
   return Object.assign({}, base, { schedules: schedules });
 }
@@ -8495,6 +8507,7 @@ function adminDeniedResponse_(lineUserId) {
 
 function getAdminDashboardForLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  markLiffPhase_("open");
   saveLineUserDirectory_(ss, {
     source: "管理画面LIFF",
     liffLineUserId: lineUserId,
@@ -8502,10 +8515,12 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
     checkedAt: new Date()
   });
 
+  markLiffPhase_("dirSave");
   if (!isAdminLiffUser_(ss, lineUserId)) {
     ensureAdminMasterSheet_(ss);
     return adminDeniedResponse_(lineUserId);
   }
+  markLiffPhase_("adminCheck");
 
   const directorySheet = ensureLineUserDirectorySheet_(ss);
 
@@ -8523,7 +8538,12 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
       source: row[10] || "",
       note: row[12] || ""
     }));
+  markLiffPhase_("dirRead");
   const relationshipData = getAdminRelationshipData_(ss);
+  markLiffPhase_("relations");
+  const pendingStaffLineLinks = getPendingStaffLineLinks_(ss);
+  const firstVisitCandidates = getOpenFirstVisitCandidatesForAdmin_(ss);
+  markLiffPhase_("pendingAndFirstVisit");
 
   return {
     success: true,
@@ -8539,8 +8559,8 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
     unassignedUsers: relationshipData.unassignedUsers,
     issues: relationshipData.issues,
     unlinkedLineUsers: unlinkedLineUsers,
-    pendingStaffLineLinks: getPendingStaffLineLinks_(ss),
-    firstVisitCandidates: getOpenFirstVisitCandidatesForAdmin_(ss),
+    pendingStaffLineLinks: pendingStaffLineLinks,
+    firstVisitCandidates: firstVisitCandidates,
     message: ""
   };
 }
@@ -8620,8 +8640,11 @@ function adminPreviewSchedulesFromLiff_(lineUserId, displayName, targetType, tar
 function getAdminRelationshipData_(ss) {
   const staffUserSheet = ss.getSheetByName(STAFF_USER_MASTER_SHEET_NAME);
   const staffMap = getAdminStaffMap_(ss);
+  markLiffPhase_("staffMap");
   const userMap = getAdminUserMap_(ss);
+  markLiffPhase_("userMap");
   const checklistContext = buildAssignmentStartChecklistContext_(ss);
+  markLiffPhase_("checklistCtx");
   const relationships = [];
   const issues = [];
   const linkedUserKeys = {};
