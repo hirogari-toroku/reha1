@@ -1794,9 +1794,7 @@
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        // The server acts only as the LINE account this token belongs to.
         const body = Object.fromEntries(params);
-        body.accessToken = getLiffAccessToken();
         const startedAt = Date.now();
         try {
           const response = await fetch(GAS_URL, {
@@ -1820,18 +1818,11 @@
     function noteSlowRequest(action, clientMs, data) {
       if (clientMs < 8000) return;
       const server = data && typeof data.serverMs === "number"
-        ? "（サーバー処理 " + Math.round(data.serverMs / 1000) + "秒・LINE確認 " + Math.round((data.verifyMs || 0) / 1000) + "秒）"
+        ? "（うちサーバー処理 " + Math.round(data.serverMs / 1000) + "秒）"
         : "";
       slowRequestNotice = "読み込みに " + Math.round(clientMs / 1000) + "秒かかりました" + server + " [" + action + "]";
     }
 
-    function getLiffAccessToken() {
-      try {
-        return (window.liff && liff.getAccessToken && liff.getAccessToken()) || "";
-      } catch (error) {
-        return "";
-      }
-    }
 
     function logRegisterLiffLogin(displayName) {
       registrationTiming.saveStart = performance.now();

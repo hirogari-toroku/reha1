@@ -51,10 +51,10 @@ test('unlinked requests capture verified profile only and ignore old invitation 
 });
 test('staff do not enter pending queue and retain original initialization',()=>{
   const f=fixture();f.c.userLinkVerify_=()=>({userId:LIFF});f.c.getStaffNameCached_=()=> '担当';assert.equal(f.c.userLinkRequest_({accessToken:'verified'}).success,false);assert.equal(f.links.writes.length,0);
-  f.c.getLiffInitDataFromDisplayMaster_=()=>({staffName:'担当'});f.c.initLiffApp_=()=>({success:true,staffName:'担当'});f.c.liffResponse_=(_,d)=>d;f.c.verifyLiffRequestIdentity_=()=>({userId:LIFF,displayName:''});assert.equal(f.c.doGet({parameter:{action:'commonInit',lineUserId:LIFF,accessToken:'t'}}).staffName,'担当');
+  f.c.getLiffInitDataFromDisplayMaster_=()=>({staffName:'担当'});f.c.initLiffApp_=()=>({success:true,staffName:'担当'});f.c.liffResponse_=(_,d)=>d;assert.equal(f.c.doGet({parameter:{action:'commonInit',lineUserId:LIFF}}).staffName,'担当');
 });
 test('common entrance routes unknown IDs without notifying as unregistered staff',()=>{
-  const f=fixture();f.c.getLiffInitDataFromDisplayMaster_=()=>null;f.c.liffResponse_=(_,d)=>d;f.c.initLiffApp_=()=>{throw Error('must not log as staff');};f.c.verifyLiffRequestIdentity_=()=>({userId:OTHER,displayName:''});assert.equal(f.c.doGet({parameter:{action:'commonInit',lineUserId:OTHER,accessToken:'t'}}).role,'userOrPending');
+  const f=fixture();f.c.getLiffInitDataFromDisplayMaster_=()=>null;f.c.liffResponse_=(_,d)=>d;f.c.initLiffApp_=()=>{throw Error('must not log as staff');};assert.equal(f.c.doGet({parameter:{action:'commonInit',lineUserId:OTHER}}).role,'userOrPending');
 });
 test('LINE verification sends verify and profile together and requires correct channel and positive expiry',()=>{
   const okProfile={getResponseCode:()=>200,getContentText:()=>JSON.stringify({userId:LIFF})};
