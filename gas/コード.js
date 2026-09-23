@@ -1012,6 +1012,15 @@ function notifyAdminUnregisteredLiffLogin_(ss, lineUserId, displayName, action) 
 }
 
 function getLiffUserList_(lineUserId) {
+  const cacheId = String(lineUserId || "");
+  if (cacheId) {
+    return cachedRead_("staffUserList:" + cacheId, () => buildLiffUserList_(lineUserId),
+      { versions: ["adminData", "schedules"] });
+  }
+  return buildLiffUserList_(lineUserId);
+}
+
+function buildLiffUserList_(lineUserId) {
   const displayMasterData = getLiffInitDataFromDisplayMaster_(lineUserId);
 
   if (displayMasterData) {
@@ -1828,6 +1837,15 @@ function getUserSchedulesForLiff_(lineUserId, displayName) {
 }
 
 function getImportantInfoForLiff_(lineUserId, displayName) {
+  const cacheId = String(lineUserId || "");
+  if (cacheId) {
+    return cachedRead_("importantInfo:" + cacheId, () => buildImportantInfoForLiff_(lineUserId, displayName),
+      { versions: ["adminData", "userLinks"] });
+  }
+  return buildImportantInfoForLiff_(lineUserId, displayName);
+}
+
+function buildImportantInfoForLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const id = String(lineUserId || "").trim();
   const name = String(displayName || "").trim();
