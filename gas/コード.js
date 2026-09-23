@@ -795,6 +795,19 @@ function initLiffApp_(lineUserId, displayName) {
 // commonInitからスタッフ情報と初回予定を1回の通信でまとめて返す。
 // displayMasterDataは呼び出し元(doGet)がすでに取得済みのため、ここでは再取得しない。
 function initLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData) {
+  // The whole staff payload is read-only display data; cache it per account until a
+  // visit, schedule or coupon write bumps the version.
+  const cacheId = String(lineUserId || "");
+  if (cacheId) {
+    const cached = cachedRead_("staffView:" + cacheId,
+      () => buildLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData),
+      { versions: ["schedules", "couponDisplay"] });
+    return Object.assign({}, cached, { lineUserId: lineUserId || "", displayName: displayName || "" });
+  }
+  return buildLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData);
+}
+
+function buildLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData) {
   const base = displayMasterData
     ? {
         success: true,
@@ -2215,7 +2228,7 @@ function getScheduleWindowReadStartRow_(sheet) {
   const todayKey = formatScheduleHintDayKey_(new Date());
   let props = null;
   try {
-    props = PropertiesService.getScriptProperties();
+    props = scheduleHintStore_();
     const saved = JSON.parse(props.getProperty(SCHEDULE_READ_START_PROPERTY) || "null");
     if (
       saved &&
@@ -2241,6 +2254,17 @@ function getScheduleWindowReadStartRow_(sheet) {
   return startRow;
 }
 
+// CacheService is much faster than PropertiesService for a value that is only a hint:
+// losing it costs one extra full scan.
+function scheduleHintStore_() {
+  const cache = CacheService.getScriptCache();
+  return {
+    getProperty: key => cache.get(key),
+    setProperty: (key, value) => cache.put(key, value, 21600),
+    deleteProperty: key => cache.put(key, "", 1)
+  };
+}
+
 function findScheduleWindowStartRow_(sheet, lastRow) {
   const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
   const cutoffTime = getLiffScheduleDateWindow_().startTime - SCHEDULE_READ_START_SAFETY_DAYS * 24 * 60 * 60 * 1000;
@@ -2260,7 +2284,7 @@ function findScheduleWindowStartRow_(sheet, lastRow) {
 
 function lowerScheduleReadStartRowHint_(rowNumber) {
   try {
-    const props = PropertiesService.getScriptProperties();
+    const props = scheduleHintStore_();
     const saved = JSON.parse(props.getProperty(SCHEDULE_READ_START_PROPERTY) || "null");
     if (saved && Number(saved.row) > rowNumber) {
       saved.row = Math.max(2, rowNumber);
@@ -2268,7 +2292,7 @@ function lowerScheduleReadStartRowHint_(rowNumber) {
     }
   } catch (error) {
     // If the hint cannot be lowered, drop it so the next read rescans the sheet.
-    try { PropertiesService.getScriptProperties().deleteProperty(SCHEDULE_READ_START_PROPERTY); } catch (ignored) {}
+    try { scheduleHintStore_().deleteProperty(SCHEDULE_READ_START_PROPERTY); } catch (ignored) {}
   }
 }
 
@@ -8582,8 +8606,8 @@ function adminDeniedResponse_(lineUserId) {
 function getAdminDashboardForLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   markLiffPhase_("open");
-  // Recording the admin's own LINE row reads both masters and writes a row; once
-  // every 6 hours is enough.
+  // Recording the admin's own LINE row reads both masters and writes a row (seconds
+  // when the sheets are cold); once a day is enough.
   const dirCache = CacheService.getScriptCache();
   const dirKey = "adminDirSaved:" + String(lineUserId || "");
   if (!dirCache.get(dirKey)) {
@@ -8593,7 +8617,7 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
       displayName: displayName,
       checkedAt: new Date()
     });
-    dirCache.put(dirKey, "1", 21600);
+    dirCache.put(dirKey, "1", 86400);
   }
 
   markLiffPhase_("dirSave");

@@ -7,11 +7,11 @@ const path = require('node:path');
 function context(store) {
   const c = vm.createContext({});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8'), c);
-  c.PropertiesService = {
-    getScriptProperties: () => ({
-      getProperty: key => (key in store ? store[key] : null),
-      setProperty: (key, value) => { store[key] = value; },
-      deleteProperty: key => { delete store[key]; }
+  // The hint now lives in CacheService (losing it only costs one extra scan).
+  c.CacheService = {
+    getScriptCache: () => ({
+      get: key => (key in store ? store[key] : null),
+      put: (key, value) => { store[key] = value; }
     })
   };
   c.Utilities = {

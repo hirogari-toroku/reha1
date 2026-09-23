@@ -40,3 +40,11 @@ test('coupon writes bump the coupon cache', () => {
   const body = src.slice(src.indexOf('function updateCouponManagementLocked_('), src.indexOf('function getCouponDisplayMap_('));
   assert.equal((body.match(/bumpReadCache_\("couponDisplay"\)/g) || []).length, 2);
 });
+
+test('staff and user screen payloads are cached and share the schedule/coupon versions', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  assert.match(src, /cachedRead_\("staffView:" \+ cacheId,[\s\S]{0,220}versions: \["schedules", "couponDisplay"\]/);
+  const link = fs.readFileSync(path.join(__dirname, '../gas/UserLink.js'), 'utf8');
+  assert.match(link, /cachedRead_\("userView:" \+ user\.id/);
+  assert.match(link, /versions: \["schedules", "couponDisplay", "firstVisit"\]/);
+});
