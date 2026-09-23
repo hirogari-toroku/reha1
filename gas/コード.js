@@ -369,6 +369,7 @@ function doGet(e) {
 
   // Every other action acts as the LINE account in lineUserId, so that ID must come
   // from a LIFF access token LINE itself vouches for, not from what the page sends.
+  if (action.indexOf("admin") === 0 && action !== "adminPreviewSchedules") bumpReadCache_("adminData");
   liffRequestTiming_ = { start: Date.now(), phases: [], action: action, lineUserId: String(e.parameter.lineUserId || "") };
 
   if (action === "adminSetupPricingPolicy") {
@@ -1733,6 +1734,15 @@ function recordScheduleFromLiff_(lineUserId, userName, dates) {
 }
 
 function getSchedulesForLiff_(lineUserId) {
+  const cacheId = String(lineUserId || "");
+  if (cacheId) {
+    return cachedRead_("staffSchedules:" + cacheId, () => buildSchedulesForLiff_(lineUserId),
+      { versions: ["schedules", "couponDisplay"] });
+  }
+  return buildSchedulesForLiff_(lineUserId);
+}
+
+function buildSchedulesForLiff_(lineUserId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   const displayMasterData = getLiffInitDataFromDisplayMaster_(lineUserId);
@@ -8605,6 +8615,18 @@ function adminDeniedResponse_(lineUserId) {
 
 function getAdminDashboardForLiff_(lineUserId, displayName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) {
+    ensureAdminMasterSheet_(ss);
+    return adminDeniedResponse_(lineUserId);
+  }
+  // Two-minute cache, refreshed by any admin action and by writes to the sheets it
+  // shows, so the panel is up to date right after an operation.
+  const cached = cachedRead_("adminDashboard", () => buildAdminDashboardForLiff_(ss, lineUserId, displayName),
+    { versions: ["adminData", "schedules", "adminLineDirectory", "firstVisit"], ttl: 120 });
+  return Object.assign({}, cached, { adminName: displayName || "", lineUserId: lineUserId || "" });
+}
+
+function buildAdminDashboardForLiff_(ss, lineUserId, displayName) {
   markLiffPhase_("open");
   // Recording the admin's own LINE row reads both masters and writes a row (seconds
   // when the sheets are cold); once a day is enough.
@@ -8621,11 +8643,6 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
   }
 
   markLiffPhase_("dirSave");
-  if (!isAdminLiffUser_(ss, lineUserId)) {
-    ensureAdminMasterSheet_(ss);
-    return adminDeniedResponse_(lineUserId);
-  }
-  markLiffPhase_("adminCheck");
 
   // Cached until the LINE user list is written (see bumpReadCache_("adminLineDirectory")).
   const unlinkedLineUsers = cachedRead_("adminLineDirectory", () => {

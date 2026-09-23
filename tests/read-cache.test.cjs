@@ -48,3 +48,17 @@ test('staff and user screen payloads are cached and share the schedule/coupon ve
   assert.match(link, /cachedRead_\("userView:" \+ user\.id/);
   assert.match(link, /versions: \["schedules", "couponDisplay", "firstVisit"\]/);
 });
+
+test('admin dashboard is cached but any admin action refreshes it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  assert.match(src, /cachedRead_\("adminDashboard",[\s\S]{0,200}versions: \["adminData", "schedules", "adminLineDirectory", "firstVisit"\], ttl: 120/);
+  assert.match(src, /if \(action\.indexOf\("admin"\) === 0 && action !== "adminPreviewSchedules"\) bumpReadCache_\("adminData"\);/);
+  // The admin check must run before the cached payload is served.
+  const fn = src.slice(src.indexOf('function getAdminDashboardForLiff_('), src.indexOf('function buildAdminDashboardForLiff_('));
+  assert.ok(fn.indexOf('isAdminLiffUser_') < fn.indexOf('cachedRead_'));
+});
+
+test('the staff refresh button reads through the same cache as startup', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  assert.match(src, /cachedRead_\("staffSchedules:" \+ cacheId[\s\S]{0,160}versions: \["schedules", "couponDisplay"\]/);
+});
