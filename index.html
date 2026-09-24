@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <link rel="preconnect" href="https://static.line-scdn.net" crossorigin>
+  <link rel="preconnect" href="https://api.line.me" crossorigin>
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     body {
@@ -1651,6 +1655,8 @@
 
     let userLinkLoadPromise = null;
     let userLoadStartedEarly = null;
+    let shownLastViewAccount = null;
+    let lastShownView = null;
     let userCoupon = null;
     let userFirstVisitOffer = null;
 
@@ -1686,6 +1692,7 @@
               (data.pending ? "登録確認待ち" : "利用者情報を確認できませんでした。");
           }
           renderUserScheduleList();
+          if (data.success) saveLastView({ schedules: scheduleItems, coupon: userCoupon });
           setMessage([data.message || "", slowRequestNotice].filter(Boolean).join("\n"));
           slowRequestNotice = "";
         })
@@ -1817,6 +1824,58 @@
           throw new Error((error.name === "AbortError" ? "サーバーの応答がありませんでした" : error.message) + "（" + seconds + "秒）");
         }
       } finally { clearTimeout(timer); }
+    }
+
+    // Last successfully shown list, kept on this phone only, so reopening the screen
+    // shows something immediately while the fresh data is still on its way. It is
+    // dropped as soon as the LINE account turns out to be a different one.
+    const LAST_VIEW_STORAGE_KEY = "hirogariLastView";
+
+    // The common link serves both the staff schedule and the user booking view, so the
+    // saved copy records which of the two it was ("view") rather than the URL mode.
+    function saveLastView(payload) {
+      if (!lineUserId) return;
+      try {
+        localStorage.setItem(LAST_VIEW_STORAGE_KEY, JSON.stringify({
+          view: appMode === "user" ? "user" : "staff",
+          lineUserId: lineUserId, savedAt: Date.now(), payload: payload
+        }));
+      } catch (error) { /* private mode or full storage: just skip */ }
+    }
+
+    function readLastView() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(LAST_VIEW_STORAGE_KEY) || "null");
+        return saved && saved.payload && (saved.view === "user" || saved.view === "staff") ? saved : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function clearLastView() {
+      try { localStorage.removeItem(LAST_VIEW_STORAGE_KEY); } catch (error) { /* ignore */ }
+    }
+
+    function showLastViewWhileLoading() {
+      const saved = readLastView();
+      if (!saved) return null;
+      scheduleItems = saved.payload.schedules || [];
+      userCoupon = saved.payload.coupon || null;
+      lastShownView = saved.view;
+      if (saved.view === "user") renderUserScheduleList(); else renderScheduleList();
+      setMessage("前回の内容を表示しています。最新の情報を読み込み中...");
+      return saved.lineUserId || "";
+    }
+
+    // Called once the LINE profile is known: a different account must not keep seeing
+    // the previous person's list.
+    function discardLastViewIfAccountChanged() {
+      if (!shownLastViewAccount || !lineUserId || shownLastViewAccount === lineUserId) return;
+      clearLastView();
+      scheduleItems = [];
+      userCoupon = null;
+      if (lastShownView === "user") renderUserScheduleList(); else renderScheduleList();
+      setMessage("別のLINEアカウントのため、表示を消しました。読み込み中...");
     }
 
     // Shown after a slow load so the user can report where the time went.
@@ -2998,6 +3057,8 @@
             renderScheduleList();
             if (scheduleItems.length === 0) setMessage("対象期間内の予定はありません。");
             initialSchedulesLoadedFromCommonInit = true;
+            // Staff cards carry their own coupon badge inside each item.
+            saveLastView({ schedules: scheduleItems });
           }
           if (slowRequestNotice) {
             setMessage(((scheduleItems.length === 0 ? "対象期間内の予定はありません。" : "") + "\n" + slowRequestNotice).trim());
@@ -3150,6 +3211,10 @@
     if (appMode === "qr") setupQrModeView();
     if (appMode === "important") setupImportantModeView();
 
+    if (appMode === "user" || appMode === "staff") {
+      shownLastViewAccount = showLastViewWhileLoading();
+    }
+
     if (appMode !== "qr") {
       reportLiffStage("page_open");
       Promise.resolve().then(() => {
@@ -3175,6 +3240,7 @@
           reportLiffStage("profile_ok");
           lineUserId = profile.userId;
           lineDisplayName = profile.displayName || "";
+          discardLastViewIfAccountChanged();
           document.getElementById("staff").innerText =
             (appMode === "user" ? "利用者情報" : appMode === "register" ? "登録情報" : appMode === "staff-register" ? "スタッフ登録情報" : appMode === "admin" ? "管理者情報" : appMode === "important" ? "重要事項説明" : "スタッフ情報") +
             "を確認中...\nLIFF用LINEユーザーID：" + lineUserId;
