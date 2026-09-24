@@ -73,3 +73,13 @@ test('refreshing the LIFF display master rebuilds every screen payload that embe
     assert.match(src.slice(at, at + 260), /"displayMaster"/, name + ' must follow the display master version');
   });
 });
+
+test('the admin daily directory write happens outside the cached payload', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  const entry = src.slice(src.indexOf('function getAdminDashboardForLiff_('), src.indexOf('function buildAdminDashboardForLiff_('));
+  assert.ok(entry.indexOf('adminDirSaved:') > 0, 'the daily write still runs');
+  assert.ok(entry.indexOf('adminDirSaved:') < entry.indexOf('cachedRead_("adminDashboard"'),
+    'it must run before the cache key is computed, or its bump discards the payload just built');
+  const builder = src.slice(src.indexOf('function buildAdminDashboardForLiff_('), src.indexOf('function getAdminRelationshipData_('));
+  assert.equal(builder.indexOf('adminDirSaved:'), -1, 'and not a second time inside the loader');
+});

@@ -8680,17 +8680,9 @@ function getAdminDashboardForLiff_(lineUserId, displayName) {
     ensureAdminMasterSheet_(ss);
     return adminDeniedResponse_(lineUserId);
   }
-  // Two-minute cache, refreshed by any admin action and by writes to the sheets it
-  // shows, so the panel is up to date right after an operation.
-  const cached = cachedRead_("adminDashboard", () => buildAdminDashboardForLiff_(ss, lineUserId, displayName),
-    { versions: ["adminData", "schedules", "adminLineDirectory", "firstVisit"], ttl: 120 });
-  return Object.assign({}, cached, { adminName: displayName || "", lineUserId: lineUserId || "" });
-}
-
-function buildAdminDashboardForLiff_(ss, lineUserId, displayName) {
-  markLiffPhase_("open");
   // Recording the admin's own LINE row reads both masters and writes a row (seconds
-  // when the sheets are cold); once a day is enough.
+  // when the sheets are cold); once a day is enough. It runs before the cached payload,
+  // because that write bumps the LINE-directory version this cache follows.
   const dirCache = CacheService.getScriptCache();
   const dirKey = "adminDirSaved:" + String(lineUserId || "");
   if (!dirCache.get(dirKey)) {
@@ -8703,8 +8695,15 @@ function buildAdminDashboardForLiff_(ss, lineUserId, displayName) {
     dirCache.put(dirKey, "1", 86400);
   }
 
-  markLiffPhase_("dirSave");
+  // Two-minute cache, refreshed by any admin action and by writes to the sheets it
+  // shows, so the panel is up to date right after an operation.
+  const cached = cachedRead_("adminDashboard", () => buildAdminDashboardForLiff_(ss, lineUserId, displayName),
+    { versions: ["adminData", "schedules", "adminLineDirectory", "firstVisit"], ttl: 120 });
+  return Object.assign({}, cached, { adminName: displayName || "", lineUserId: lineUserId || "" });
+}
 
+function buildAdminDashboardForLiff_(ss, lineUserId, displayName) {
+  markLiffPhase_("open");
   // Cached until the LINE user list is written (see bumpReadCache_("adminLineDirectory")).
   const unlinkedLineUsers = cachedRead_("adminLineDirectory", () => {
     const directorySheet = ensureLineUserDirectorySheet_(ss);
