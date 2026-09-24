@@ -1,0 +1,28 @@
+name: Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  sensitive:
+    name: 個人情報・秘密情報の混入チェック
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Scan tracked files
+        run: node tools/scan-sensitive.cjs --all
+
+      - name: Run tests
+        run: node --test tests/*.test.cjs

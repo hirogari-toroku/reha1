@@ -4,7 +4,8 @@
   "description": "ひろがり 自費リハ LIFF / GAS。テスト実行用の設定のみ（本体はgas/とindex.html）。",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "test:browser": "node tests/registration-browser.cjs && node tests/user-link-browser.cjs"
+    "test:browser": "node tests/registration-browser.cjs && node tests/user-link-browser.cjs",
+    "scan": "node tools/scan-sensitive.cjs --all"
   },
   "devDependencies": {
     "playwright": "^1.63.0"
