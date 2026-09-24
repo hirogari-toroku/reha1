@@ -156,20 +156,26 @@ function doPost(e) {
       saveLineMessageLog_(ss, receivedAt, "受信", "", userId, event.message.text, displayName);
       return;
     }
-    const staffName = getStaffName_(ss, userId);
+    const staffName = getStaffNameCached_(ss, userId);
     const isRegisteredStaff = staffName !== "未登録";
     const displayName = getLineDisplayNameFromEvent_(event);
     const text = event.message.text;
     const replyToken = event.replyToken;
 
-    saveLineUserDirectory_(ss, {
-      source: "公式LINEメッセージ",
-      messagingLineUserId: userId,
-      displayName: displayName,
-      detectedStaffName: staffName,
-      lastMessage: text,
-      checkedAt: receivedAt
-    });
+    // The directory exists to surface accounts that are not linked yet, and updating it
+    // re-reads both masters and writes a row. For a registered staff member that only
+    // refreshes the "last message" column, so do it at most once an hour; unknown
+    // senders are still recorded immediately.
+    if (!isRegisteredStaff || !wasDirectoryRecordedRecently_(userId)) {
+      saveLineUserDirectory_(ss, {
+        source: "公式LINEメッセージ",
+        messagingLineUserId: userId,
+        displayName: displayName,
+        detectedStaffName: staffName,
+        lastMessage: text,
+        checkedAt: receivedAt
+      });
+    }
 
     rawSheet.appendRow([receivedAt, staffName, userId, text]);
     saveLineMessageLog_(
@@ -2903,18 +2909,28 @@ function getStaffNameCached_(ss, userId) {
   const targetUserId = String(userId || "").trim();
   if (!targetUserId) return "未登録";
 
-  const cache = CacheService.getScriptCache();
   const cacheKey = "staffName:" + targetUserId;
-  const cached = cache.get(cacheKey);
-
-  if (cached) return cached;
+  let cache = null;
+  try {
+    cache = CacheService.getScriptCache();
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+  } catch (error) {
+    cache = null;
+  }
 
   const staffName = getStaffName_(ss, targetUserId);
-  cache.put(
-    cacheKey,
-    staffName,
-    staffName === "未登録" ? LIFF_UNREGISTERED_CACHE_SECONDS : LIFF_INIT_CACHE_SECONDS
-  );
+  if (cache) {
+    try {
+      cache.put(
+        cacheKey,
+        staffName,
+        staffName === "未登録" ? LIFF_UNREGISTERED_CACHE_SECONDS : LIFF_INIT_CACHE_SECONDS
+      );
+    } catch (error) {
+      // Without the cache every call just reads the master again.
+    }
+  }
   return staffName;
 }
 
@@ -5015,6 +5031,20 @@ function saveLineMessageLog_(ss, dateTime, direction, senderName, lineUserId, me
     message,
     displayName || ""
   ]);
+}
+
+// True when this sender's directory row was refreshed within the hour (registered
+// staff only; the marker is set right after a successful refresh).
+function wasDirectoryRecordedRecently_(lineUserId) {
+  const key = "lineDirSeen:" + String(lineUserId || "");
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get(key)) return true;
+    cache.put(key, "1", 3600);
+    return false;
+  } catch (error) {
+    return false;
+  }
 }
 
 function saveLineUserDirectory_(ss, data) {
