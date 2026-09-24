@@ -802,7 +802,7 @@ function initLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterDat
   if (cacheId) {
     const cached = cachedRead_("staffView:" + cacheId,
       () => buildLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData),
-      { versions: ["schedules", "couponDisplay"] });
+      { versions: ["schedules", "couponDisplay", "displayMaster"] });
     return Object.assign({}, cached, { lineUserId: lineUserId || "", displayName: displayName || "" });
   }
   return buildLiffAppWithSchedules_(ss, lineUserId, displayName, displayMasterData);
@@ -1015,7 +1015,7 @@ function getLiffUserList_(lineUserId) {
   const cacheId = String(lineUserId || "");
   if (cacheId) {
     return cachedRead_("staffUserList:" + cacheId, () => buildLiffUserList_(lineUserId),
-      { versions: ["adminData", "schedules"] });
+      { versions: ["adminData", "schedules", "displayMaster"] });
   }
   return buildLiffUserList_(lineUserId);
 }
@@ -1190,6 +1190,9 @@ function saveLiffDisplayMasterProperties_(initDataMap) {
   });
 
   props.setProperties(properties);
+  // Screen payloads embed the staff's user list, so they must be rebuilt whenever the
+  // LIFF display master is refreshed (admin LIFF action or spreadsheet menu).
+  bumpReadCache_("displayMaster");
   props.deleteProperty("LIFF_DISPLAY_MASTER_JSON");
 
   for (let i = chunks.length; i < oldChunkCount; i++) {
@@ -1746,7 +1749,7 @@ function getSchedulesForLiff_(lineUserId) {
   const cacheId = String(lineUserId || "");
   if (cacheId) {
     return cachedRead_("staffSchedules:" + cacheId, () => buildSchedulesForLiff_(lineUserId),
-      { versions: ["schedules", "couponDisplay"] });
+      { versions: ["schedules", "couponDisplay", "displayMaster"] });
   }
   return buildSchedulesForLiff_(lineUserId);
 }
@@ -1840,7 +1843,7 @@ function getImportantInfoForLiff_(lineUserId, displayName) {
   const cacheId = String(lineUserId || "");
   if (cacheId) {
     return cachedRead_("importantInfo:" + cacheId, () => buildImportantInfoForLiff_(lineUserId, displayName),
-      { versions: ["adminData", "userLinks"] });
+      { versions: ["adminData", "userLinks", "displayMaster"] });
   }
   return buildImportantInfoForLiff_(lineUserId, displayName);
 }

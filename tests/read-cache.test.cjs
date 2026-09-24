@@ -43,7 +43,7 @@ test('coupon writes bump the coupon cache', () => {
 
 test('staff and user screen payloads are cached and share the schedule/coupon versions', () => {
   const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
-  assert.match(src, /cachedRead_\("staffView:" \+ cacheId,[\s\S]{0,220}versions: \["schedules", "couponDisplay"\]/);
+  assert.match(src, /cachedRead_\("staffView:" \+ cacheId,[\s\S]{0,240}versions: \["schedules", "couponDisplay", "displayMaster"\]/);
   const link = fs.readFileSync(path.join(__dirname, '../gas/UserLink.js'), 'utf8');
   assert.match(link, /cachedRead_\("userView:" \+ user\.id/);
   assert.match(link, /versions: \["schedules", "couponDisplay", "firstVisit"\]/);
@@ -60,5 +60,16 @@ test('admin dashboard is cached but any admin action refreshes it', () => {
 
 test('the staff refresh button reads through the same cache as startup', () => {
   const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
-  assert.match(src, /cachedRead_\("staffSchedules:" \+ cacheId[\s\S]{0,160}versions: \["schedules", "couponDisplay"\]/);
+  assert.match(src, /cachedRead_\("staffSchedules:" \+ cacheId[\s\S]{0,180}versions: \["schedules", "couponDisplay", "displayMaster"\]/);
+});
+
+test('refreshing the LIFF display master rebuilds every screen payload that embeds it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  const writer = src.slice(src.indexOf('function saveLiffDisplayMasterProperties_'), src.indexOf('function getLiffDisplayMasterCacheVersion_'));
+  assert.match(writer, /bumpReadCache_\("displayMaster"\)/);
+  ['staffView:', 'staffSchedules:', 'staffUserList:', 'importantInfo:'].forEach(name => {
+    const at = src.indexOf('cachedRead_("' + name);
+    assert.ok(at > 0, name + ' is cached');
+    assert.match(src.slice(at, at + 260), /"displayMaster"/, name + ' must follow the display master version');
+  });
 });
