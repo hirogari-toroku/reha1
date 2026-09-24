@@ -1,0 +1,12 @@
+{
+  "name": "reha1",
+  "private": true,
+  "description": "ひろがり 自費リハ LIFF / GAS。テスト実行用の設定のみ（本体はgas/とindex.html）。",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/registration-browser.cjs && node tests/user-link-browser.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
