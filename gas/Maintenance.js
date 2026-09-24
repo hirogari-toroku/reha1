@@ -10,6 +10,7 @@ const MONTHLY_CHECK_TRIGGER_HOUR = 13;
 const LINE_FREE_PUSH_LIMIT = 200;
 const LINE_PUSH_WARNING_RATIO = 0.75;
 const MONTHLY_CHECK_SHEET_NAME = "月次点検";
+const MAINTENANCE_TRIGGER_STATE_PROPERTY = "MAINTENANCE_TRIGGER_STATE";
 
 function backupFolder_() {
   const parents = DriveApp.getFoldersByName(BACKUP_FOLDER_NAME);
@@ -76,6 +77,17 @@ function setupDailyBackupTriggerCore_() {
 
   ScriptApp.newTrigger("runDailyBackup").timeBased().atHour(BACKUP_TRIGGER_HOUR).everyDays(1).create();
   ScriptApp.newTrigger("runMonthlyMaintenanceCheck").timeBased().atHour(MONTHLY_CHECK_TRIGGER_HOUR).everyDays(1).create();
+
+  // 設定した時刻を残しておく。あとから「何時で登録されているか」を画面で確認できる。
+  try {
+    PropertiesService.getScriptProperties().setProperty(MAINTENANCE_TRIGGER_STATE_PROPERTY, JSON.stringify({
+      backupHour: BACKUP_TRIGGER_HOUR,
+      checkHour: MONTHLY_CHECK_TRIGGER_HOUR,
+      setAt: Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM-dd HH:mm")
+    }));
+  } catch (error) {
+    // 記録できなくてもトリガー自体は設定済み。
+  }
 
   return {
     success: true,
@@ -335,4 +347,44 @@ function adminSetupDailyBackupFromLiff_(lineUserId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
   return setupDailyBackupTriggerCore_();
+}
+
+// いま登録されているバックアップ・点検のトリガーを確認する（読み取りのみ）。
+function adminMaintenanceStatusFromLiff_(lineUserId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+
+  const handlers = ScriptApp.getProjectTriggers()
+    .map(trigger => trigger.getHandlerFunction())
+    .filter(name => name === "runDailyBackup" || name === "runMonthlyMaintenanceCheck");
+  let state = null;
+  try {
+    state = JSON.parse(PropertiesService.getScriptProperties().getProperty(MAINTENANCE_TRIGGER_STATE_PROPERTY) || "null");
+  } catch (error) {
+    state = null;
+  }
+
+  const registered = {
+    backup: handlers.indexOf("runDailyBackup") !== -1,
+    check: handlers.indexOf("runMonthlyMaintenanceCheck") !== -1,
+    backupHour: state ? state.backupHour : null,
+    checkHour: state ? state.checkHour : null,
+    setAt: state ? state.setAt : "",
+    expectedBackupHour: BACKUP_TRIGGER_HOUR,
+    expectedCheckHour: MONTHLY_CHECK_TRIGGER_HOUR
+  };
+  const upToDate = registered.backup && registered.check &&
+    registered.backupHour === BACKUP_TRIGGER_HOUR && registered.checkHour === MONTHLY_CHECK_TRIGGER_HOUR;
+
+  return {
+    success: true,
+    maintenance: registered,
+    message: !registered.backup || !registered.check
+      ? "自動実行は未設定です。『毎日のバックアップを設定』を押してください。"
+      : upToDate
+        ? "自動実行は設定済みです。バックアップ " + registered.backupHour + "時台、点検 " + registered.checkHour + "時台（設定日時 " + registered.setAt + "）。"
+        : "登録済みですが時刻が古い可能性があります（登録時 バックアップ " + registered.backupHour + "時台・点検 " + registered.checkHour +
+          "時台／現在の設定 バックアップ " + BACKUP_TRIGGER_HOUR + "時台・点検 " + MONTHLY_CHECK_TRIGGER_HOUR +
+          "時台）。『毎日のバックアップを設定』をもう一度押してください。"
+  };
 }

@@ -541,6 +541,10 @@ function doGet(e) {
     return liffResponse_(e, adminRunMonthlyCheckFromLiff_(e.parameter.lineUserId));
   }
 
+  if (action === "adminMaintenanceStatus") {
+    return liffResponse_(e, adminMaintenanceStatusFromLiff_(e.parameter.lineUserId));
+  }
+
   if (action === "adminSetupDailyBackup") {
     return liffResponse_(e, adminSetupDailyBackupFromLiff_(e.parameter.lineUserId));
   }

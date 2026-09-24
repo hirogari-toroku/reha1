@@ -197,3 +197,39 @@ test('the check runs at midday and the backup at night', () => {
   assert.match(src, /newTrigger\("runDailyBackup"\)\.timeBased\(\)\.atHour\(BACKUP_TRIGGER_HOUR\)/);
   assert.match(src, /newTrigger\("runMonthlyMaintenanceCheck"\)\.timeBased\(\)\.atHour\(MONTHLY_CHECK_TRIGGER_HOUR\)/);
 });
+
+test('the setup records the hours it used, and the status action compares them with the code', () => {
+  const s = setup({});
+  const created = [];
+  const store = {};
+  s.c.ScriptApp = {
+    getProjectTriggers: () => created.map(name => ({ getHandlerFunction: () => name })),
+    newTrigger: name => ({
+      timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => created.push(name) }) }) })
+    }),
+    deleteTrigger: () => {}
+  };
+  s.c.PropertiesService = {
+    getScriptProperties: () => ({
+      getProperty: k => (k in store ? store[k] : null),
+      setProperty: (k, v) => { store[k] = v; }
+    })
+  };
+
+  assert.match(s.c.adminMaintenanceStatusFromLiff_('ADMIN').message, /未設定/);
+  s.c.setupDailyBackupTriggerCore_();
+  const saved = JSON.parse(store.MAINTENANCE_TRIGGER_STATE);
+  assert.equal(saved.backupHour, 3);
+  assert.equal(saved.checkHour, 13);
+
+  const status = s.c.adminMaintenanceStatusFromLiff_('ADMIN');
+  assert.equal(status.maintenance.backup, true);
+  assert.equal(status.maintenance.check, true);
+  assert.match(status.message, /設定済みです/);
+  assert.match(status.message, /13時台/);
+
+  // 古い時刻で登録されていた場合は、押し直しを促す
+  store.MAINTENANCE_TRIGGER_STATE = JSON.stringify({ backupHour: 3, checkHour: 7, setAt: '2026-09-25 09:00' });
+  assert.match(s.c.adminMaintenanceStatusFromLiff_('ADMIN').message, /もう一度押してください/);
+  assert.equal(s.c.adminMaintenanceStatusFromLiff_('someone').success, false);
+});
