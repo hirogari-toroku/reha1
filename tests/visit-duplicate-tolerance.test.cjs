@@ -52,11 +52,17 @@ test('a second visit later the same day, another type, user, staff, or date is n
   assert.equal(c.isRecentDuplicateVisit_(sheet, '佐藤', '山田太郎', '終了', '2026-09-23', '10:00', now), false);
 });
 
-test('records without a usable time fall back to the original exact-match rule only', () => {
+test('when either side has no time, a same-day record of the same type counts as the same visit', () => {
   const c = context();
-  const sheet = makeSheet([header, [recordedHoursAgo(3), '終了', '佐藤', '山田太郎', '2026-09-22', '']]);
-  assert.equal(c.isRecentDuplicateVisit_(sheet, '佐藤', '山田太郎', '終了', '2026-09-22', '15:00', new Date()), false);
-  assert.equal(c.isRecentDuplicateVisit_(sheet, '佐藤', '山田太郎', '終了', '2026-09-22', '', new Date()), false);
+  const now = new Date();
+  const timeless = makeSheet([header, [recordedHoursAgo(3), '終了', '佐藤', '山田太郎', '2026-09-22', '']]);
+  assert.equal(c.isRecentDuplicateVisit_(timeless, '佐藤', '山田太郎', '終了', '2026-09-22', '15:00', now), true);
+  assert.equal(c.isRecentDuplicateVisit_(timeless, '佐藤', '山田太郎', '終了', '2026-09-22', '', now), true);
+  assert.equal(c.isRecentDuplicateVisit_(timeless, '佐藤', '山田太郎', '開始', '2026-09-22', '15:00', now), false, 'a start is still a different record');
+  assert.equal(c.isRecentDuplicateVisit_(timeless, '佐藤', '山田太郎', '終了', '2026-09-23', '15:00', now), false, 'another day is unaffected');
+
+  const timed = makeSheet([header, [recordedHoursAgo(3), '終了', '佐藤', '山田太郎', '2026-09-22', '10:00']]);
+  assert.equal(c.isRecentDuplicateVisit_(timed, '佐藤', '山田太郎', '終了', '2026-09-22', '', now), true, 'a timeless report matches a timed record that day');
 });
 
 test('the original same-minute resend check still applies', () => {

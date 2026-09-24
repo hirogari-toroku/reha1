@@ -2702,8 +2702,10 @@ const LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES = 60;
 // LINE records store the date as "M/d" and LIFF records as "yyyy-MM-dd", so dates are
 // compared as calendar days, resolving a missing year from each row's recorded time.
 function isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType, visitDate, targetTime, now) {
+  // Without a usable time on either side (hand-typed rows), a same-day record of the
+  // same type for the same pair is treated as the same visit: two real ones that day
+  // cannot be told apart, and double-counting them would also double the pay.
   const targetMinutes = visitTimeKeyToMinutes_(targetTime);
-  if (targetMinutes === null) return false;
 
   const visitDay = parseComparisonDate_(visitDate, now instanceof Date ? now : new Date(now));
   if (!visitDay) return false;
@@ -2724,7 +2726,7 @@ function isSameVisitAlreadyRecorded_(sheet, targetStaff, targetUser, targetType,
     const rowDay = parseComparisonDate_(row[4], row[0] instanceof Date ? row[0] : undefined);
     if (!rowDay || visitDayKey_(rowDay) !== targetDayKey) continue;
     const minutes = visitTimeKeyToMinutes_(normalizeVisitTimeKey_(row[5]));
-    if (minutes === null) continue;
+    if (minutes === null || targetMinutes === null) return true;
     if (Math.abs(minutes - targetMinutes) <= LIFF_DUPLICATE_VISIT_TIME_TOLERANCE_MINUTES) return true;
   }
 
