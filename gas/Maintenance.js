@@ -3,8 +3,8 @@
 const BACKUP_FOLDER_NAME = "自費リハ管理バックアップ";
 const BACKUP_KEEP_GENERATIONS = 7;
 const BACKUP_TRIGGER_HOUR = 3;
-// 点検結果の通知は、気づいてもらいやすい朝に送る。
-const MONTHLY_CHECK_TRIGGER_HOUR = 7;
+// 点検結果の通知は、訪問の合間に見やすい昼に送る。
+const MONTHLY_CHECK_TRIGGER_HOUR = 13;
 
 // 無料のコミュニケーションプランは送信（プッシュ）が月200通まで。返信は無料。
 const LINE_FREE_PUSH_LIMIT = 200;

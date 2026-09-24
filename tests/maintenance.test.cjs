@@ -190,10 +190,10 @@ test('the admin actions are wired and refuse non-admins', () => {
   assert.equal(s.c.adminLineUsageFromLiff_('ADMIN').success, true);
 });
 
-test('the check runs in the morning and the backup at night', () => {
+test('the check runs at midday and the backup at night', () => {
   const src = fs.readFileSync(path.join(__dirname, '../gas/Maintenance.js'), 'utf8');
   assert.match(src, /const BACKUP_TRIGGER_HOUR = 3;/);
-  assert.match(src, /const MONTHLY_CHECK_TRIGGER_HOUR = 7;/);
+  assert.match(src, /const MONTHLY_CHECK_TRIGGER_HOUR = 13;/);
   assert.match(src, /newTrigger\("runDailyBackup"\)\.timeBased\(\)\.atHour\(BACKUP_TRIGGER_HOUR\)/);
   assert.match(src, /newTrigger\("runMonthlyMaintenanceCheck"\)\.timeBased\(\)\.atHour\(MONTHLY_CHECK_TRIGGER_HOUR\)/);
 });
