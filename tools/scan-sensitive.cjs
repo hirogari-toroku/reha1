@@ -9,6 +9,8 @@ const path = require('node:path');
 
 const SKIP_FILES = [
   'tools/scan-sensitive.cjs',
+  // 検査そのものを試すため、見本の秘密情報や氏名をあえて書いてあるファイル
+  'tests/scan-sensitive.test.cjs',
   'package-lock.json'
 ];
 

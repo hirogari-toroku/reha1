@@ -45,7 +45,7 @@ test('real-looking personal names are caught, including ones close to the test s
   const found = scan('本日、佐藤太郎様の訪問を実施しました。');
   assert.equal(found.code, 1);
   assert.match(found.out, /氏名らしい記述/);
-  assert.equal(scan('石倉さんの給与を更新').code, 1);
+  assert.equal(scan('架空田さんの給与を更新').code, 1);
   assert.equal(scan('佐藤花子様へ連絡').code, 1, 'a name ending like a sample name is still flagged');
 });
 
