@@ -533,6 +533,14 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminCancelFirstVisitCandidates") {
+    return liffResponse_(e, adminCancelFirstVisitCandidatesFromLiff_(
+      e.parameter.lineUserId,
+      e.parameter.displayName,
+      e.parameter.candidateId
+    ));
+  }
+
   if (action === "adminConfirmStaffLineLink" || action === "adminRejectStaffLineLink") {
     return liffResponse_(e, adminResolveStaffLineLinkFromLiff_(
       e.parameter.lineUserId,

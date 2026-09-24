@@ -2552,13 +2552,30 @@
       items.forEach(item => {
         const card = document.createElement("div");
         card.className = "admin-target" + (item.status === "確定" ? "" : " ready");
-        card.style.whiteSpace = "pre-line";
-        card.textContent =
+        const text = document.createElement("div");
+        text.style.whiteSpace = "pre-line";
+        text.textContent =
           item.userName + " 様 / 担当：" + item.staffName + "\n" +
           (item.status === "確定"
             ? "確定：" + item.selected
             : "返事待ち：" + (item.options || []).join("、")) +
           (item.notifyResult ? "\n" + item.notifyResult : "");
+        card.appendChild(text);
+
+        if (item.status !== "確定") {
+          const actions = document.createElement("div");
+          actions.className = "admin-action-row";
+          const cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.className = "danger";
+          cancel.textContent = "候補日を取り消し";
+          cancel.onclick = () => {
+            if (!window.confirm(item.userName + " 様の候補日を取り消しますか？（利用者の選択画面から消えます）")) return;
+            runAdminAction("adminCancelFirstVisitCandidates", { candidateId: item.candidateId }, cancel);
+          };
+          actions.appendChild(cancel);
+          card.appendChild(actions);
+        }
         area.appendChild(card);
       });
     }

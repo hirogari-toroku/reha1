@@ -164,3 +164,27 @@ test('frontend wires the admin form and the user pick buttons', () => {
   assert.match(code, /json\.action === "userSelectFirstVisit"/);
   assert.match(code, /action === "adminCreateFirstVisitCandidates"/);
 });
+
+test('an unanswered offer can be withdrawn, and only that', () => {
+  const { c, ss, sheets } = setup();
+  c.adminCreateFirstVisitCandidatesFromLiff_('ADMIN', '', { userId: 'U001', staffId: 'S001', option1: futureLocal(3, 10) });
+  const candidateId = sheets['初回訪問候補'].rows[1][0];
+
+  assert.equal(c.adminCancelFirstVisitCandidatesFromLiff_('someone', '', candidateId).success, false, 'non-admins are refused');
+  assert.equal(c.adminCancelFirstVisitCandidatesFromLiff_('ADMIN', '', 'FV-missing').success, false);
+
+  assert.equal(c.adminCancelFirstVisitCandidatesFromLiff_('ADMIN', '', candidateId).success, true);
+  assert.equal(sheets['初回訪問候補'].rows[1][9], '取消');
+  assert.equal(c.getFirstVisitOfferForUser_(ss, { id: 'U001', name: '山田太郎' }), null, 'the user can no longer pick it');
+  assert.equal(c.getOpenFirstVisitCandidatesForAdmin_(ss).length, 0, 'and it leaves the admin list');
+  assert.throws(() => c.bookFirstVisitOption_(ss, { id: 'U001', name: '山田太郎' }, 'L-user', candidateId, 1), /確定済み|返事待ち|見つかりません/);
+
+  assert.match(c.adminCancelFirstVisitCandidatesFromLiff_('ADMIN', '', candidateId).message, /返事待ちではありません/);
+});
+
+test('the admin screen offers the withdraw button and routes it', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  assert.match(html, /runAdminAction\("adminCancelFirstVisitCandidates", \{ candidateId: item\.candidateId \}/);
+  const code = fs.readFileSync(path.join(__dirname, '../gas/コード.js'), 'utf8');
+  assert.match(code, /action === "adminCancelFirstVisitCandidates"/);
+});

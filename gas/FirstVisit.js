@@ -9,6 +9,7 @@ const FIRST_VISIT_HEADERS = [
 const FIRST_VISIT_OPEN = "候補提示中";
 const FIRST_VISIT_BOOKED = "確定";
 const FIRST_VISIT_REPLACED = "差し替え";
+const FIRST_VISIT_CANCELLED = "取消";
 const FIRST_VISIT_MAX_OPTIONS = 3;
 const FIRST_VISIT_BOOKING_LINK = "https://liff.line.me/2010856600-yxOaV2Np";
 
@@ -155,6 +156,32 @@ function adminCreateFirstVisitCandidatesFromLiff_(lineUserId, displayName, param
     message: user.name + " 様へ候補日を" + options.length + "件作成しました（" + notifyText + "）。" +
       (recipients.length ? "" : "電話などで予約確認ページの案内をお願いします。")
   };
+}
+
+// Withdraws an offer the user has not answered yet, so no one can pick it any more.
+function adminCancelFirstVisitCandidatesFromLiff_(lineUserId, displayName, candidateId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!isAdminLiffUser_(ss, lineUserId)) return adminDeniedResponse_(lineUserId);
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = firstVisitSheet_(ss);
+    const item = firstVisitRows_(sheet).filter(entry => String(entry.row[0]) === String(candidateId || ""))[0];
+    if (!item) return { success: false, message: "対象の候補日が見つかりません。画面を更新してください。" };
+    if (item.row[9] !== FIRST_VISIT_OPEN) {
+      return { success: false, message: "この候補日は返事待ちではありません（" + item.row[9] + "）。画面を更新してください。" };
+    }
+    sheet.getRange(item.rowNumber, 10).setValue(FIRST_VISIT_CANCELLED);
+    SpreadsheetApp.flush();
+    bumpReadCache_("firstVisit");
+    return {
+      success: true,
+      message: String(item.row[3]) + " 様の候補日を取り消しました。利用者側の選択画面からも消えます。LINEでの取り消し連絡は送っていません。"
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getOpenFirstVisitCandidatesForAdmin_(ss) {
