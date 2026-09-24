@@ -3,6 +3,8 @@
 const BACKUP_FOLDER_NAME = "自費リハ管理バックアップ";
 const BACKUP_KEEP_GENERATIONS = 7;
 const BACKUP_TRIGGER_HOUR = 3;
+// 点検結果の通知は、気づいてもらいやすい朝に送る。
+const MONTHLY_CHECK_TRIGGER_HOUR = 7;
 
 // 無料のコミュニケーションプランは送信（プッシュ）が月200通まで。返信は無料。
 const LINE_FREE_PUSH_LIMIT = 200;
@@ -73,7 +75,7 @@ function setupDailyBackupTriggerCore_() {
   });
 
   ScriptApp.newTrigger("runDailyBackup").timeBased().atHour(BACKUP_TRIGGER_HOUR).everyDays(1).create();
-  ScriptApp.newTrigger("runMonthlyMaintenanceCheck").timeBased().atHour(BACKUP_TRIGGER_HOUR + 1).everyDays(1).create();
+  ScriptApp.newTrigger("runMonthlyMaintenanceCheck").timeBased().atHour(MONTHLY_CHECK_TRIGGER_HOUR).everyDays(1).create();
 
   return {
     success: true,
@@ -81,7 +83,7 @@ function setupDailyBackupTriggerCore_() {
       "日次バックアップと点検のトリガーを設定しました。\n" +
       "既存トリガー削除：" + deletedCount + "件\n" +
       "毎日" + BACKUP_TRIGGER_HOUR + "時台にバックアップ（" + BACKUP_KEEP_GENERATIONS + "世代保持）、" +
-      (BACKUP_TRIGGER_HOUR + 1) + "時台にLINE送信通数と月次点検を確認します。\n" +
+      MONTHLY_CHECK_TRIGGER_HOUR + "時台にLINE送信通数と月次点検を確認します。\n" +
       "Google側で自動実行されるため、パソコンを開いておく必要はありません。"
   };
 }
