@@ -1110,6 +1110,14 @@
             <button type="button" class="secondary" onclick="runAdminAction('adminSetupUserQuestionnaireAutoImportTrigger', null, this)">利用者登録トリガー設定</button>
           </div>
         </details>
+        <div class="admin-toolbox-note">
+          バックアップ・LINE送信通数・月次点検。バックアップと点検はGoogle側で毎日自動実行されます（設定は1回だけ）。
+        </div>
+        <div class="admin-action-row">
+          <button type="button" class="secondary" onclick="runAdminAction('adminLineUsage', null, this)">LINE送信通数を見る</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminRunMonthlyCheck', null, this)">今月の点検を実行</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminSetupDailyBackup', null, this)">毎日のバックアップを設定</button>
+        </div>
       </div>
       <div class="admin-section-title">代理表示テスト</div>
       <div class="admin-toolbox">

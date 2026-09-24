@@ -533,6 +533,18 @@ function doGet(e) {
     ));
   }
 
+  if (action === "adminLineUsage") {
+    return liffResponse_(e, adminLineUsageFromLiff_(e.parameter.lineUserId));
+  }
+
+  if (action === "adminRunMonthlyCheck") {
+    return liffResponse_(e, adminRunMonthlyCheckFromLiff_(e.parameter.lineUserId));
+  }
+
+  if (action === "adminSetupDailyBackup") {
+    return liffResponse_(e, adminSetupDailyBackupFromLiff_(e.parameter.lineUserId));
+  }
+
   if (action === "adminCancelFirstVisitCandidates") {
     return liffResponse_(e, adminCancelFirstVisitCandidatesFromLiff_(
       e.parameter.lineUserId,
