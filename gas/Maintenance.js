@@ -317,10 +317,30 @@ function runMonthlyMaintenanceCheck() {
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
 
   notifyNewNegativeCoupons_(results[0].negativeUsers);
+  notifyLinePushWarningOnce_(results[0]);
   return { success: true, checks: results };
 }
 
-// 管理者へのLINEは、回数券がマイナスの利用者が新しく出たときだけ送る。毎日の点検結果は
+// LINE送信が無料枠の75%（150通）を超えたら、その月に1回だけ管理者へ知らせる。
+const LINE_PUSH_WARNED_PROPERTY = "LINE_PUSH_WARNED_MONTH";
+
+function notifyLinePushWarningOnce_(check) {
+  if (!check || check.linePush < Math.floor(LINE_FREE_PUSH_LIMIT * LINE_PUSH_WARNING_RATIO)) return false;
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty(LINE_PUSH_WARNED_PROPERTY) === check.month) return false;
+  props.setProperty(LINE_PUSH_WARNED_PROPERTY, check.month);
+  if (!ADMIN_LINE_USER_ID) return false;
+  try {
+    sendPushMessage_(SpreadsheetApp.openById(MAIN_SPREADSHEET_ID), ADMIN_LINE_USER_ID, "システム点検",
+      "【LINE送信が無料枠に近づいています】\n" + check.month + " の送信は " + check.linePush + "通です（無料枠 " +
+      LINE_FREE_PUSH_LIMIT + "通）。" + LINE_FREE_PUSH_LIMIT + "通を超えると、その月は送信できなくなります。");
+  } catch (error) {
+    console.error("notifyLinePushWarningOnce_ failed: " + error.message);
+  }
+  return true;
+}
+
+// 管理者へのLINEは、回数券がマイナスの利用者が新しく出たときと、無料枠に近づいたとき（月1回）だけ送る。毎日の点検結果は
 // 「月次点検」シートに残すだけにして、LINEの無料枠を使わない。マイナスが解消した利用者は
 // 一覧から外れるので、再びマイナスになれば改めて知らせる。
 const NEGATIVE_COUPON_USERS_PROPERTY = "NEGATIVE_COUPON_USERS";

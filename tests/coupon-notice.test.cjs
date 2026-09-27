@@ -48,7 +48,7 @@ function setup(balances) {
   c.Utilities = { formatDate: () => '9月27日' };
   const pushes = [];
   c.sendPushMessage_ = (_ss, to, _name, text) => { pushes.push({ to, text }); return { success: true }; };
-  return { c, ss, pushes };
+  return { c, ss, pushes, props };
 }
 
 test('the visit that uses the last coupon tells linked user and family accounts, and the staff reply', () => {
@@ -59,7 +59,7 @@ test('the visit that uses the last coupon tells linked user and family accounts,
   assert.match(pushes[0].text, /本日（9月25日）の訪問で、お手元の回数券をすべてご利用いただくことになります。/);
   assert.match(pushes[0].text, /お振込み先はいつもの口座です。/);
   assert.match(note, /山田太郎様の回数券は今回で使い切りになります。/);
-  assert.match(note, /その場で受け取らないでください/);
+  assert.match(note, /ご案内をお願いいたします。$/);
 });
 
 test('a visit with no coupons left says it is unpaid and how many visits are owed', () => {
@@ -108,4 +108,24 @@ test('the test user is never notified', () => {
   const { c, ss, pushes } = setup([['テスト利用者', 0]]);
   assert.equal(c.couponNoticeOnVisitStart_(ss, 'テスト利用者', '9/25'), '');
   assert.equal(pushes.length, 0);
+});
+
+test('the unpaid count grows by one with each visit while no payment arrives', () => {
+  [[0, 1], [-1, 2], [-2, 3], [-3, 4]].forEach(([balance, owed]) => {
+    const { c, ss, pushes } = setup([['山田太郎', balance]]);
+    c.couponNoticeOnVisitStart_(ss, '山田太郎', '10/2');
+    assert.match(pushes[0].text, new RegExp('本日分を含めて未精算 ' + owed + '回分'));
+  });
+});
+
+test('the transfer account comes from a script property, not the code', () => {
+  const plain = setup([['山田太郎', 1]]);
+  plain.c.couponNoticeOnVisitStart_(plain.ss, '山田太郎', '9/25');
+  assert.match(plain.pushes[0].text, /お振込み先はいつもの口座です。/);
+
+  const withAccount = setup([['山田太郎', 1]]);
+  withAccount.props.COUPON_TRANSFER_ACCOUNT = '〇〇銀行 〇〇支店 普通 0000000 口座名義';
+  withAccount.c.couponNoticeOnVisitStart_(withAccount.ss, '山田太郎', '9/25');
+  assert.match(withAccount.pushes[0].text, /【お振込み先】\n〇〇銀行 〇〇支店 普通 0000000 口座名義\n/);
+  assert.doesNotMatch(withAccount.pushes[0].text, /いつもの口座/);
 });

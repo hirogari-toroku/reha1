@@ -274,3 +274,29 @@ test('failed pushes to dummy rehearsal recipients are left out of the failure co
   assert.equal(quiet.lineFailed, 0);
   assert.doesNotMatch(quiet.issues.join(' / '), /LINE送信失敗/);
 });
+
+test('the admin is warned once a month when LINE pushes pass 150', () => {
+  const s = setup({
+    '訪問実績': makeSheet([['日時', '種別', 'スタッフ', '利用者', '実施日']]),
+    '訪問予定': makeSheet([['登録', 'スタッフ', '利用者', '訪問日']]),
+    '入出金明細': makeSheet([['日付', '摘要', '入金']]),
+    '回数券管理': makeSheet([['利用者名', '回数券残数']]),
+    'LINE送受信ログ': makeSheet(logRows(150, 0, 0))
+  });
+  s.c.runMonthlyMaintenanceCheck();
+  assert.equal(s.pushes.length, 1);
+  assert.match(s.pushes[0].text, /無料枠に近づいています/);
+  assert.match(s.pushes[0].text, /150通/);
+  s.c.runMonthlyMaintenanceCheck();
+  assert.equal(s.pushes.length, 1, 'only once in the same month');
+
+  const quiet = setup({
+    '訪問実績': makeSheet([['日時', '種別', 'スタッフ', '利用者', '実施日']]),
+    '訪問予定': makeSheet([['登録', 'スタッフ', '利用者', '訪問日']]),
+    '入出金明細': makeSheet([['日付', '摘要', '入金']]),
+    '回数券管理': makeSheet([['利用者名', '回数券残数']]),
+    'LINE送受信ログ': makeSheet(logRows(149, 0, 0))
+  });
+  quiet.c.runMonthlyMaintenanceCheck();
+  assert.equal(quiet.pushes.length, 0);
+});

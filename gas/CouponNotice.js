@@ -1,8 +1,11 @@
 // 訪問の開始を登録したときに、回数券が今回で使い切りになる（残り1回）か、すでに残りがない
 // （0回以下）場合、LINE連携済みの利用者・家族へお知らせを送り、スタッフへの返信に一文を足す。
+// 振込先はリポジトリが公開のためコードに書かず、スクリプトプロパティ COUPON_TRANSFER_ACCOUNT に
+// 入れる。未設定なら「いつもの口座」と案内する。
 // 管理者へは送らない（LINEの無料枠を使わないため）。回数券の残数は「終了」の登録と入金取込で
 // 更新されるので、開始の時点では今回の訪問はまだ差し引かれていない。
 const COUPON_NOTICE_PROPERTY_PREFIX = "COUPON_NOTICE:";
+const COUPON_TRANSFER_ACCOUNT_PROPERTY = "COUPON_TRANSFER_ACCOUNT";
 
 function couponNoticeOnVisitStart_(ss, userName, visitDate) {
   try {
@@ -28,13 +31,14 @@ function couponNoticeOnVisitStart_(ss, userName, visitDate) {
 function buildCouponNoticeUserMessage_(name, dateText, balance) {
   const body = balance >= 1
     ? "本日（" + dateText + "）の訪問で、お手元の回数券をすべてご利用いただくことになります。\n" +
-      "次回以降の訪問に向けて、次の回数券分のお振込みをお願いいたします。お振込み先はいつもの口座です。\n"
+      "次回以降の訪問に向けて、次の回数券分のお振込みをお願いいたします。\n"
     : "お手元の回数券はすでにすべてご利用いただいているため、本日（" + dateText + "）の訪問は未精算となります" +
       "（本日分を含めて未精算 " + (1 - balance) + "回分）。\n" +
-      "お手数ですが、お振込みをお願いいたします。お振込み先はいつもの口座です。\n";
+      "お手数ですが、お振込みをお願いいたします。\n";
   return name + " 様\n" +
     "いつもひろがりの訪問リハビリをご利用いただき、ありがとうございます。\n" +
     body +
+    couponTransferAccountText_() +
     "行き違いでお振込み済みの場合は、ご容赦ください。\n" +
     "ご不明な点がありましたら、このLINEにご返信ください。\n" +
     "合同会社ひろがり";
@@ -43,7 +47,12 @@ function buildCouponNoticeUserMessage_(name, dateText, balance) {
 function buildCouponNoticeStaffNote_(name, balance) {
   return "\n\n※" + name + "様の回数券は" +
     (balance >= 1 ? "今回で使い切りになります。" : "残りがなく、今回は未精算になります。") +
-    "お金のことを聞かれたら、運営から案内があるとお伝えください（その場で受け取らないでください）。";
+    "ご案内をお願いいたします。";
+}
+
+function couponTransferAccountText_() {
+  const account = String(PropertiesService.getScriptProperties().getProperty(COUPON_TRANSFER_ACCOUNT_PROPERTY) || "").trim();
+  return account ? "【お振込み先】\n" + account + "\n" : "お振込み先はいつもの口座です。\n";
 }
 
 // 同じ利用者・同じ訪問日には1回だけ送る（開始の登録し直しで二重に届かないように）。
