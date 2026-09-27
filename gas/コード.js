@@ -262,6 +262,7 @@ function doPost(e) {
         });
       } else {
         const couponUpdate = refreshCouponAfterVisit_(ss, firstRow[3], firstRow[1]);
+        const couponNote = firstRow[1] === "開始" ? couponNoticeOnVisitStart_(ss, firstRow[3], firstRow[4]) : "";
         replyMessages.push({
           replyToken,
           userId,
@@ -269,7 +270,7 @@ function doPost(e) {
           message:
             firstRow[1] === "開始"
               ? "よろしくお願いします。" + NL +
-                "利用者：" + firstRow[3]
+                "利用者：" + firstRow[3] + couponNote
               : "お疲れ様でした。" + NL +
                 "利用者：" + firstRow[3] + " の実績を登録しました。" + couponUpdate.warning
         });
@@ -1539,7 +1540,8 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
   }
 
   const couponUpdate = refreshCouponAfterVisit_(ss, resolvedUserName, type);
-  const message = "利用者：" + resolvedUserName + " 様の" + type + "実績を登録しました。" + couponUpdate.warning;
+  const couponNote = type === "開始" ? couponNoticeOnVisitStart_(ss, resolvedUserName, targetDate) : "";
+  const message = "利用者：" + resolvedUserName + " 様の" + type + "実績を登録しました。" + couponUpdate.warning + couponNote;
 
   saveLiffOperationLog_(
     ss,
@@ -1559,7 +1561,8 @@ function recordVisitFromLiff_(lineUserId, userName, visitType, visitDate, visitT
     lineUserId,
     staffName,
     resolvedUserName,
-    type
+    type,
+    couponNote
   );
 
   return {
@@ -5690,7 +5693,7 @@ function getMessagingLineUserIdByLiffId_(ss, lineUserId) {
   return "";
 }
 
-function sendVisitConfirmationPushFromLiff_(ss, liffLineUserId, staffName, userName, visitType) {
+function sendVisitConfirmationPushFromLiff_(ss, liffLineUserId, staffName, userName, visitType, extraText) {
   const typeText = visitType === "終了" ? "終了" : "開始";
 
   try {
@@ -5698,7 +5701,7 @@ function sendVisitConfirmationPushFromLiff_(ss, liffLineUserId, staffName, userN
       .getScriptProperties()
       .getProperty("LINE_CHANNEL_ACCESS_TOKEN");
     const toLineUserId = getMessagingLineUserIdByLiffId_(ss, liffLineUserId);
-    const message = "利用者：" + userName + " 様の" + typeText + "の実績を登録しました。";
+    const message = "利用者：" + userName + " 様の" + typeText + "の実績を登録しました。" + (extraText || "");
 
     if (!token) {
       saveLiffOperationLog_(

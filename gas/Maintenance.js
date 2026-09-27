@@ -226,6 +226,7 @@ function buildMonthlyCheck_(ss, monthKey) {
     depositTotal: deposits.total,
     depositCount: deposits.count,
     couponNegative: coupon.negativeCount,
+    negativeUsers: coupon.negativeUsers,
     linePush: usage.sent,
     lineFailed: usage.failed,
     issues: issues
@@ -282,11 +283,8 @@ function sumDepositsForMonth_(ss, monthKey) {
 
 function summarizeCoupons_(ss) {
   const map = getCouponDisplayMap_(ss);
-  let negativeCount = 0;
-  Object.keys(map).forEach(key => {
-    if (Number(map[key].balance) < 0) negativeCount++;
-  });
-  return { negativeCount: negativeCount };
+  const negativeUsers = Object.keys(map).filter(key => Number(map[key].balance) < 0);
+  return { negativeCount: negativeUsers.length, negativeUsers: negativeUsers };
 }
 
 function monthlyCheckSheet_(ss) {
@@ -318,12 +316,35 @@ function runMonthlyMaintenanceCheck() {
   ]);
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
 
-  const problems = results.filter(check => check.issues.length);
-  if (problems.length) {
-    notifyAdminMaintenance_("月次点検で気になる点",
-      problems.map(check => check.month + "：" + check.issues.join(" / ")).join("\n"));
-  }
+  notifyNewNegativeCoupons_(results[0].negativeUsers);
   return { success: true, checks: results };
+}
+
+// 管理者へのLINEは、回数券がマイナスの利用者が新しく出たときだけ送る。毎日の点検結果は
+// 「月次点検」シートに残すだけにして、LINEの無料枠を使わない。マイナスが解消した利用者は
+// 一覧から外れるので、再びマイナスになれば改めて知らせる。
+const NEGATIVE_COUPON_USERS_PROPERTY = "NEGATIVE_COUPON_USERS";
+
+function notifyNewNegativeCoupons_(negativeUsers) {
+  const props = PropertiesService.getScriptProperties();
+  const stored = props.getProperty(NEGATIVE_COUPON_USERS_PROPERTY);
+  const current = (negativeUsers || []).slice().sort();
+  props.setProperty(NEGATIVE_COUPON_USERS_PROPERTY, JSON.stringify(current));
+  // 初回は、すでにマイナスの利用者を通知済みとして扱う（この仕組みより前から毎日届いていたため）。
+  if (stored === null) return [];
+  let known = [];
+  try { known = JSON.parse(stored) || []; } catch (error) { known = []; }
+  const added = current.filter(name => known.indexOf(name) === -1);
+  // 重複はこの一覧で防いでいるので、1日1回の制限（notifyAdminMaintenance_）は通さない。
+  if (added.length && ADMIN_LINE_USER_ID) {
+    try {
+      sendPushMessage_(SpreadsheetApp.openById(MAIN_SPREADSHEET_ID), ADMIN_LINE_USER_ID, "システム点検",
+        "【回数券がマイナスになりました】\n" + added.join("、") + " 様の回数券残数がマイナスです。入金の確認とご案内をお願いします。");
+    } catch (error) {
+      console.error("notifyNewNegativeCoupons_ failed: " + error.message);
+    }
+  }
+  return added;
 }
 
 function adminRunMonthlyCheckFromLiff_(lineUserId) {

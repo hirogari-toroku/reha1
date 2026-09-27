@@ -42,6 +42,11 @@ function setup(sheets) {
       return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + '_' + pad(date.getHours()) + pad(date.getMinutes());
     }
   };
+  const props = {};
+  c.PropertiesService = { getScriptProperties: () => ({
+    getProperty: k => (k in props ? props[k] : null),
+    setProperty: (k, v) => { props[k] = v; }
+  }) };
   const pushes = [];
   c.sendPushMessage_ = (_ss, to, _n, text) => { pushes.push({ to, text }); return { success: true }; };
   c.saveLiffOperationLog_ = () => {};
@@ -129,19 +134,34 @@ test('a clean month reports no problems and writes one row per checked month', (
   assert.equal(s.pushes.length, 0, 'nothing to report, so no LINE message');
 });
 
-test('problems notify the admin once a day', () => {
+test('the admin hears only about users who newly went negative, not every daily problem', () => {
+  const coupons = [['利用者名', '回数券残数'], ['A', -1]];
   const s = setup({
     '訪問実績': makeSheet([['日時', '種別', 'スタッフ', '利用者', '実施日'], [thisMonth(), '終了', 'S', 'U', thisMonth()]]),
     '訪問予定': makeSheet([['登録', 'スタッフ', '利用者', '訪問日']]),
     '入出金明細': makeSheet([['日付', '摘要', '入金']]),
-    '回数券管理': makeSheet([['利用者名', '回数券残数']]),
-    'LINE送受信ログ': makeSheet(logRows(0, 0, 0))
+    '回数券管理': makeSheet(coupons),
+    'LINE送受信ログ': makeSheet(logRows(0, 0, 3))
   });
   s.c.runMonthlyMaintenanceCheck();
-  assert.equal(s.pushes.length, 1);
-  assert.match(s.pushes[0].text, /月次点検/);
+  assert.equal(s.pushes.length, 0, 'the first run treats existing negatives as already known');
+  assert.match(s.sheets['月次点検'].rows[1][11], /回数券残数がマイナス/, 'problems are still written to the sheet');
+
+  coupons.push(['B', -1]);
+  s.c.getCouponDisplayMap_ = ss => s.c.readCouponDisplayMap_(ss);
   s.c.runMonthlyMaintenanceCheck();
-  assert.equal(s.pushes.length, 1, 'the same warning is not sent twice in a day');
+  assert.equal(s.pushes.length, 1);
+  assert.match(s.pushes[0].text, /B 様の回数券残数がマイナス/);
+  assert.doesNotMatch(s.pushes[0].text, /A/);
+
+  s.c.runMonthlyMaintenanceCheck();
+  assert.equal(s.pushes.length, 1, 'the same negative user is not reported again');
+
+  coupons.splice(1, 1);
+  s.c.runMonthlyMaintenanceCheck();
+  coupons.push(['A', -2]);
+  s.c.runMonthlyMaintenanceCheck();
+  assert.equal(s.pushes.length, 2, 'a user who recovered and went negative again is reported again');
 });
 
 test('backup keeps only the newest generations and is set up by a time-driven trigger', () => {
