@@ -233,3 +233,24 @@ test('the setup records the hours it used, and the status action compares them w
   assert.match(s.c.adminMaintenanceStatusFromLiff_('ADMIN').message, /もう一度押してください/);
   assert.equal(s.c.adminMaintenanceStatusFromLiff_('someone').success, false);
 });
+
+test('failed pushes to dummy rehearsal recipients are left out of the failure count', () => {
+  const realId = 'U' + '0'.repeat(32);
+  const rows = [['日時', '区分', '名前', 'LINEユーザーID', 'メッセージ']];
+  rows.push([thisMonth(), '送信失敗', 'ダミー', 'UdummyMessagingStaff0001', 'LINE Push送信失敗：400']);
+  rows.push([thisMonth(), '送信失敗', 'ダミー', 'TEST_USER_ID', 'LINE Push送信失敗：400']);
+  rows.push([thisMonth(), '送信失敗', 'スタッフ', realId, 'LINE Push送信失敗：500']);
+  rows.push([thisMonth(), '送信失敗', 'スタッフ', '', 'LINEユーザーIDが未登録']);
+  const s = setup({ 'LINE送受信ログ': makeSheet(rows) });
+  const usage = s.c.getLinePushUsage_(s.ss);
+  assert.equal(usage.failed, 2, 'a real ID and a missing ID still count');
+  assert.equal(usage.excludedTestFailures, 2);
+
+  const check = s.c.buildMonthlyCheck_(s.ss, s.c.Utilities.formatDate(thisMonth(), 'x', 'yyyy-MM'));
+  assert.equal(check.lineFailed, 2);
+
+  const onlyDummy = setup({ 'LINE送受信ログ': makeSheet(rows.slice(0, 3)) });
+  const quiet = onlyDummy.c.buildMonthlyCheck_(onlyDummy.ss, onlyDummy.c.Utilities.formatDate(thisMonth(), 'x', 'yyyy-MM'));
+  assert.equal(quiet.lineFailed, 0);
+  assert.doesNotMatch(quiet.issues.join(' / '), /LINE送信失敗/);
+});

@@ -107,13 +107,16 @@ function setupDailyBackupTrigger() {
 
 // 送受信ログの「送信」行を月ごとに数える。返信（応答）は無料のため、プッシュ送信だけを
 // 通数として扱う。sendPushMessage_ 系は「送信」「送信失敗」で記録される。
+// 送信先が実在しない形式のID（リハーサル用のダミーなど）への失敗は、点検の失敗件数に含めない。
+// 送信先IDが空の失敗は登録漏れの可能性があるため、従来どおり数える。
 function countLinePushMessages_(ss, monthKey) {
   const sheet = ss.getSheetByName(LINE_MESSAGE_LOG_SHEET_NAME);
-  if (!sheet || sheet.getLastRow() < 2) return { month: monthKey, sent: 0, failed: 0, rows: 0 };
+  if (!sheet || sheet.getLastRow() < 2) return { month: monthKey, sent: 0, failed: 0, excludedTestFailures: 0, rows: 0 };
 
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
   let sent = 0;
   let failed = 0;
+  let excludedTestFailures = 0;
   const reasons = {};
   values.forEach(row => {
     const at = row[0];
@@ -122,6 +125,10 @@ function countLinePushMessages_(ss, monthKey) {
     const direction = String(row[1] || "").trim();
     if (direction === "送信") sent++;
     else if (direction === "送信失敗") {
+      if (isTestLineRecipient_(row[3])) {
+        excludedTestFailures++;
+        return;
+      }
       failed++;
       const reason = summarizePushFailureReason_(row[4]);
       reasons[reason] = (reasons[reason] || 0) + 1;
@@ -131,9 +138,15 @@ function countLinePushMessages_(ss, monthKey) {
     month: monthKey,
     sent: sent,
     failed: failed,
+    excludedTestFailures: excludedTestFailures,
     rows: values.length,
     failureReasons: Object.keys(reasons).map(reason => reason + "：" + reasons[reason] + "件")
   };
+}
+
+function isTestLineRecipient_(to) {
+  const id = String(to || "").trim();
+  return id !== "" && !/^U[0-9a-f]{32}$/.test(id);
 }
 
 // 失敗理由をまとめる。LINEユーザーIDや氏名はまとめ結果に残さない。
@@ -159,6 +172,7 @@ function getLinePushUsage_(ss) {
     month: thisMonth,
     sent: current.sent,
     failed: current.failed,
+    excludedTestFailures: current.excludedTestFailures || 0,
     lastMonth: lastMonth,
     lastMonthSent: before.sent,
     limit: limit,
@@ -180,6 +194,7 @@ function adminLineUsageFromLiff_(lineUserId) {
       usage.month + " のLINE送信：" + usage.sent + "通（無料枠" + usage.limit + "通、残り" + usage.remaining + "通）\n" +
       usage.lastMonth + " は " + usage.lastMonthSent + "通。送信失敗：" + usage.failed + "件。\n" +
       (usage.failureReasons.length ? "失敗の内訳：" + usage.failureReasons.join(" / ") + "\n" : "") +
+      (usage.excludedTestFailures ? "テスト用の宛先への失敗" + usage.excludedTestFailures + "件は除外しています。\n" : "") +
       (usage.overLimit
         ? "無料枠を超えています。超過分は送信されないか、有料プランが必要です。"
         : usage.warning ? "無料枠の残りが少なくなっています。" : "余裕があります。")
