@@ -192,17 +192,11 @@ function doPost(e) {
       return;
     }
 
+    // 未登録の送信者（利用者・家族など）には、このシステムからは返信しない。返信は公式アカウントの
+    // 自動返信に任せ、IDは上のLINEユーザー一覧と送受信ログに記録済み。スタッフは最初に登録するため、
+    // 未登録スタッフ向けの案内は不要。
     if (!isRegisteredStaff) {
       logStaffLookupFailure_(ss, userId, text);
-      replyMessages.push({
-        replyToken,
-        userId,
-        staffName,
-        message:
-          "スタッフが未登録です。" + NL +
-          "管理者へ確認してください。" + NL +
-          "LINEユーザーID：" + userId
-      });
       return;
     }
 

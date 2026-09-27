@@ -33,11 +33,12 @@ test('unregistered sender cannot impersonate a staff member by matching their LI
   c.getLineDisplayNameFromEvent_=()=>'山田太郎';
   c.saveLineUserDirectory_=()=>{};
   c.saveLineMessageLog_=()=>{};
-  c.logStaffLookupFailure_=()=>{};
+  let lookupFailures=0;
+  c.logStaffLookupFailure_=()=>{lookupFailures++;};
   c.getStaffName_=()=>'未登録';
   c.getStaffNameByDisplayName_=()=>{throw Error('display name must not authorize staff commands')};
   c.doPost({postData:{contents:JSON.stringify({events:[{type:'message',source:{userId:'impostor-id'},replyToken:'rt',
     message:{type:'text',text:'山田太郎 開始'}}]})}});
-  assert.equal(sent.length,1);
-  assert.match(sent[0].message,/スタッフが未登録です/);
+  assert.equal(sent.length,0,'unregistered senders get no reply from the system; the official account auto-reply covers them');
+  assert.equal(lookupFailures,1,'the sender is still logged');
 });
