@@ -3653,8 +3653,8 @@ function getStaffFormalNameMap_(ss) {
 /**
  * 給与集計処理（メインロジック）
  */
-function createPayrollSummary() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createPayrollSummary(ssArg) {
+  const ss = spreadsheetArg_(ssArg);
 
   const visitSheet = ss.getSheetByName("訪問実績");
   const payrollSheet = ss.getSheetByName("給与集計");
@@ -4066,21 +4066,23 @@ function updateTravelCostsInStaffUserMaster() {
 /**
  * 給与明細PDFをテンプレートシートをベースに自動出力
  */
-function createPayrollPdfFromTemplate() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+// targetYm（yyyy-MM）を渡すとその月だけ作る。省略時は従来どおり直近2ヶ月。
+function createPayrollPdfFromTemplate(ssArg, targetYm) {
+  const ss = spreadsheetArg_(ssArg);
 
   const detailSheet = ss.getSheetByName("給与集計");
   const templateSheet = ss.getSheetByName("給与明細テンプレート");
 
   if (!detailSheet || !templateSheet) {
-    SpreadsheetApp.getUi().alert("給与集計または給与明細テンプレートシートがありません。");
-    return;
+    const message = "給与集計または給与明細テンプレートシートがありません。";
+    payrollAlert_(message);
+    return { success: false, message: message, createdCount: 0, failedFiles: [message] };
   }
 
   const values = detailSheet.getDataRange().getValues();
   const folder = DriveApp.getFolderById(PAYROLL_FOLDER_ID);
   const staffFolderMap = getStaffPayrollFolderMap_(ss);
-  const targetYmKeys = getRecentPayrollYmKeys_(values, 2);
+  const targetYmKeys = targetYm ? { [targetYm]: true } : getRecentPayrollYmKeys_(values, 2);
   const failedFiles = [];
   const skippedFiles = [];
   const noStaffFolderFiles = [];
@@ -4180,8 +4182,16 @@ function createPayrollPdfFromTemplate() {
     }
   }
 
+  const result = {
+    success: failedFiles.length === 0,
+    createdCount: createdCount,
+    skippedFiles: skippedFiles,
+    failedFiles: failedFiles,
+    noStaffFolderFiles: noStaffFolderFiles
+  };
+
   if (failedFiles.length > 0) {
-    SpreadsheetApp.getUi().alert(
+    payrollAlert_(
       "給与明細PDFの作成が一部失敗しました。" + String.fromCharCode(10) +
       "作成済：" + createdCount + "件" + String.fromCharCode(10) +
       "既存明細ありでスキップ：" + skippedFiles.length + "件" + String.fromCharCode(10) +
@@ -4206,8 +4216,9 @@ function createPayrollPdfFromTemplate() {
         noStaffFolderFiles.join(String.fromCharCode(10));
     }
 
-    SpreadsheetApp.getUi().alert(message);
+    payrollAlert_(message);
   }
+  return result;
 }
 
 function getRecentPayrollYmKeys_(values, monthCount) {
@@ -4374,28 +4385,25 @@ function hasPayrollPdfForMonth_(folder, ymText) {
  * - 確認用シートにスタッフ名と警告を表示
  * - 実際のCSVファイルにはスタッフ名・警告列は含めない
  */
-function createGmoTransferCsv() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+// targetYm（yyyy-MM）を渡すとその月だけ作る。省略時は従来どおり直近2ヶ月。
+function createGmoTransferCsv(ssArg, targetYm) {
+  const ss = spreadsheetArg_(ssArg);
 
   const payrollSheet = ss.getSheetByName("給与集計");
   const gmoSheet = ss.getSheetByName("GMO振込CSV");
 
-  if (!payrollSheet) {
-    SpreadsheetApp.getUi().alert("給与集計シートがありません。");
-    return;
-  }
-
-  if (!gmoSheet) {
-    SpreadsheetApp.getUi().alert("GMO振込CSVシートがありません。");
-    return;
+  if (!payrollSheet || !gmoSheet) {
+    const message = payrollSheet ? "GMO振込CSVシートがありません。" : "給与集計シートがありません。";
+    payrollAlert_(message);
+    return { success: false, message: message };
   }
 
   const staffBankMap = getStaffBankMap_(ss);
   const payrollValues = payrollSheet.getDataRange().getValues();
 
   if (payrollValues.length < 2) {
-    SpreadsheetApp.getUi().alert("給与集計にデータがありません。");
-    return;
+    payrollAlert_("給与集計にデータがありません。");
+    return { success: false, message: "給与集計にデータがありません。" };
   }
 
   const header = payrollValues[0];
@@ -4405,11 +4413,9 @@ function createGmoTransferCsv() {
   const paymentCol = header.indexOf("支給額");
 
   if (ymCol === -1 || staffNameCol === -1 || paymentCol === -1) {
-    SpreadsheetApp.getUi().alert(
-      "給与集計シートのヘッダーが見つかりません。\n\n" +
-      "必要な列名：年月、スタッフ名、支給額"
-    );
-    return;
+    const message = "給与集計シートのヘッダーが見つかりません。\n\n必要な列名：年月、スタッフ名、支給額";
+    payrollAlert_(message);
+    return { success: false, message: message };
   }
 
   const REQUESTER_NAME = "ﾄﾞ)ﾋﾛｶﾞﾘ";
@@ -4435,7 +4441,7 @@ function createGmoTransferCsv() {
   const csvRowsByYm = {};
   const unregisteredStaffs = [];
   const warningMessages = [];
-  const targetYmKeys = getRecentPayrollYmKeys_(payrollValues, 2);
+  const targetYmKeys = targetYm ? { [targetYm]: true } : getRecentPayrollYmKeys_(payrollValues, 2);
   let oldMonthSkippedRowCount = 0;
 
   for (let i = 1; i < payrollValues.length; i++) {
@@ -4504,8 +4510,8 @@ function createGmoTransferCsv() {
   const skippedCsvFiles = [];
 
   if (ymList.length === 0) {
-    SpreadsheetApp.getUi().alert("GMO振込CSV対象データがありません。");
-    return;
+    payrollAlert_("GMO振込CSV対象データがありません。");
+    return { success: false, message: "GMO振込CSV対象データがありません。", unregisteredStaffs: unregisteredStaffs };
   }
 
   ymList.forEach(ymText => {
@@ -4556,7 +4562,15 @@ function createGmoTransferCsv() {
       "GMO振込CSVシートの確認メモ列を確認してください。";
   }
 
-  SpreadsheetApp.getUi().alert(message);
+  payrollAlert_(message);
+  return {
+    success: true,
+    createdCsvCount: createdCsvCount,
+    skippedCsvFiles: skippedCsvFiles,
+    unregisteredStaffs: unregisteredStaffs,
+    warningCount: warningMessages.length,
+    message: message
+  };
 }
 
 /**
@@ -4671,7 +4685,7 @@ function getStaffBankMap_(ss) {
   const sheet = ss.getSheetByName(STAFF_SHEET_NAME);
 
   if (!sheet) {
-    SpreadsheetApp.getUi().alert("スタッフマスタシートがありません。");
+    payrollAlert_("スタッフマスタシートがありません。");
     return {};
   }
 
@@ -4711,7 +4725,7 @@ function getStaffBankMap_(ss) {
   }
 
   if (duplicateStaffs.length > 0) {
-    SpreadsheetApp.getUi().alert(
+    payrollAlert_(
       "スタッフマスタに同じスタッフ名が複数あります。\n\n" +
       duplicateStaffs.join("、") + "\n\n" +
       "口座情報の取り違え防止のため、スタッフマスタを確認してください。"
@@ -4743,27 +4757,49 @@ function runPayrollSummaryOnly() {
   );
 }
 
+// 前月分だけを作る。今月の途中までの実績で明細・振込CSVを作ると、
+// 翌月1日の正式な作成が「既存あり」で飛ばされるため。
 function runPayrollFilesAfterReview() {
-  createWageLedger();
-  createPayrollPdfFromTemplate();
-  createGmoTransferCsv();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ym = previousMonthKey_(new Date());
+  createWageLedger(ss);
+  createPayrollPdfFromTemplate(ss, ym);
+  createGmoTransferCsv(ss, ym);
+}
+
+function previousMonthKey_(now) {
+  return Utilities.formatDate(new Date(now.getFullYear(), now.getMonth() - 1, 1), "Asia/Tokyo", "yyyy-MM");
+}
+
+// メニューから呼ばれたときはアクティブなシート、時間主導トリガーからは渡されたシートを使う。
+function spreadsheetArg_(ssArg) {
+  return ssArg && typeof ssArg.getSheetByName === "function" ? ssArg : SpreadsheetApp.getActiveSpreadsheet();
+}
+
+// 画面がある（メニュー実行）ときだけダイアログを出す。トリガー実行では画面がないためログに残す。
+function payrollAlert_(message) {
+  try {
+    SpreadsheetApp.getUi().alert(message);
+  } catch (error) {
+    console.log(message);
+  }
 }
 
 /**
  * 賃金台帳の自動更新・蓄積
  */
-function createWageLedger() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function createWageLedger(ssArg) {
+  const ss = spreadsheetArg_(ssArg);
   const payrollSheet = ss.getSheetByName("給与集計");
   let ledgerSheet = ss.getSheetByName("賃金台帳");
 
   if (!payrollSheet) {
-    SpreadsheetApp.getUi().alert("給与集計シートがありません。");
+    payrollAlert_("給与集計シートがありません。");
     return;
   }
 
   if (!ledgerSheet) {
-    SpreadsheetApp.getUi().alert("賃金台帳シートがありません。先に手動で作成してください。");
+    payrollAlert_("賃金台帳シートがありません。先に手動で作成してください。");
     return;
   }
 
@@ -7658,22 +7694,19 @@ function isActiveUserStatus_(status) {
  * 訪問予定と訪問実績を1枚の照合シートにまとめる
  */
 function updateScheduleVisitComparison() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const result = updateScheduleVisitComparisonCore_(SpreadsheetApp.getActiveSpreadsheet());
+  payrollAlert_(result.message);
+}
+
+function updateScheduleVisitComparisonCore_(ss) {
   const scheduleSheet = ss.getSheetByName(SCHEDULE_SHEET_NAME);
   const visitSheet = ss.getSheetByName(VISIT_RESULT_SHEET_NAME);
 
   if (!scheduleSheet || !visitSheet) {
-    SpreadsheetApp.getUi().alert("訪問予定シート、または訪問実績シートがありません。");
-    return;
+    return { success: false, message: "訪問予定シート、または訪問実績シートがありません。" };
   }
 
-  const comparisonMap = {};
-
-  collectScheduleComparisonRows_(scheduleSheet, comparisonMap);
-  collectVisitComparisonRows_(visitSheet, comparisonMap);
-
-  const rows = Object.keys(comparisonMap)
-    .map(key => comparisonMap[key])
+  const rows = buildScheduleVisitComparisonItems_(scheduleSheet, visitSheet)
     .sort((a, b) => {
       const dateDiff = b.date.getTime() - a.date.getTime();
       if (dateDiff !== 0) return dateDiff;
@@ -7726,7 +7759,15 @@ function updateScheduleVisitComparison() {
   }
 
   formatScheduleVisitComparisonSheet_(sheet, headers.length);
-  SpreadsheetApp.getUi().alert("予定・実績照合シートを更新しました。件数：" + rows.length + "件");
+  return { success: true, count: rows.length, message: "予定・実績照合シートを更新しました。件数：" + rows.length + "件" };
+}
+
+// 日付・スタッフ・利用者ごとに予定と開始/終了実績を突き合わせた一覧（テスト利用者・キャンセル予定は除く）。
+function buildScheduleVisitComparisonItems_(scheduleSheet, visitSheet) {
+  const comparisonMap = {};
+  collectScheduleComparisonRows_(scheduleSheet, comparisonMap);
+  collectVisitComparisonRows_(visitSheet, comparisonMap);
+  return Object.keys(comparisonMap).map(key => comparisonMap[key]);
 }
 
 function collectScheduleComparisonRows_(sheet, comparisonMap) {
@@ -11274,7 +11315,7 @@ function onOpen() {
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
     .addItem("💰 給与集計だけ更新", "runPayrollSummaryOnly")
-    .addItem("📄 給与明細PDF・振込CSVを作成", "runPayrollFilesAfterReview")
+    .addItem("📄 給与明細PDF・振込CSVを作成（前月分）", "runPayrollFilesAfterReview")
     .addItem("📁 給与明細PDFをスタッフフォルダへ移動", "movePayrollPdfsToStaffFolders")
     .addItem("📁 既存スタッフフォルダIDを確認・反映", "syncExistingStaffFolderIds")
     .addItem("📁 新規スタッフフォルダを作成・共有", "createAndShareStaffFolders")
