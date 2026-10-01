@@ -536,6 +536,22 @@ function doGet(e) {
     return liffResponse_(e, adminRunMonthlyCheckFromLiff_(e.parameter.lineUserId));
   }
 
+  if (action === "adminPayrollRecheck") {
+    return liffResponse_(e, adminPayrollRecheckFromLiff_(e.parameter.lineUserId));
+  }
+
+  if (action === "adminPayrollApprove") {
+    return liffResponse_(e, adminPayrollApproveFromLiff_(e.parameter.lineUserId));
+  }
+
+  if (action === "adminSetupPayrollAuto") {
+    return liffResponse_(e, adminSetupPayrollAutoFromLiff_(e.parameter.lineUserId));
+  }
+
+  if (action === "adminPayrollStatus") {
+    return liffResponse_(e, adminPayrollStatusFromLiff_(e.parameter.lineUserId));
+  }
+
   if (action === "adminMaintenanceStatus") {
     return liffResponse_(e, adminMaintenanceStatusFromLiff_(e.parameter.lineUserId));
   }
@@ -3572,7 +3588,15 @@ function normalizeScheduleDateText_(value) {
 /**
  * 給与振込日算出（対象月の翌月15日、土日祝の場合は前営業日）
  */
+// 祝日カレンダーの参照は遅いため、同じ実行の中では月ごとに1回だけ計算する。
+const payrollTransferDateCache_ = {};
+
 function getPayrollTransferDate_(ym) {
+  if (!payrollTransferDateCache_[ym]) payrollTransferDateCache_[ym] = calculatePayrollTransferDate_(ym);
+  return payrollTransferDateCache_[ym];
+}
+
+function calculatePayrollTransferDate_(ym) {
   const parts = ym.split("-");
   const year = Number(parts[0]);
   const month = Number(parts[1]);
@@ -3687,8 +3711,9 @@ function createPayrollSummary(ssArg) {
     const receivedAtDate = new Date(receivedAt);
     if (isNaN(receivedAtDate.getTime())) continue;
 
+    // 給与の月は訪問した日で決める（月末の訪問を翌月に登録しても、訪問した月の給与に入る）。
     const ym = Utilities.formatDate(
-      receivedAtDate,
+      getPayrollVisitDate_(row, receivedAtDate),
       "Asia/Tokyo",
       "yyyy-MM"
     );
@@ -3808,6 +3833,14 @@ function createPayrollSummary(ssArg) {
       .getRange(2, 1, output.length - 1, output[0].length)
       .setFontWeight("normal");
   }
+}
+
+// 実施日（J列）→ 日付（E列）→ 受信日時 の順に、訪問した日を求める。
+function getPayrollVisitDate_(row, receivedAtDate) {
+  const explicitDate = row && row.length > 9 ? parseComparisonDate_(row[9], receivedAtDate) : null;
+  if (explicitDate) return explicitDate;
+  const visitDate = row && row.length > 4 ? parseComparisonDate_(row[4], receivedAtDate) : null;
+  return visitDate || receivedAtDate;
 }
 
 function getPayrollVisitDateKey_(row, fallbackDate) {
@@ -4195,7 +4228,7 @@ function createPayrollPdfFromTemplate(ssArg, targetYm) {
       "給与明細PDFの作成が一部失敗しました。" + String.fromCharCode(10) +
       "作成済：" + createdCount + "件" + String.fromCharCode(10) +
       "既存明細ありでスキップ：" + skippedFiles.length + "件" + String.fromCharCode(10) +
-      "直近2ヶ月以外でスキップ：" + oldMonthSkippedCount + "件" + String.fromCharCode(10) +
+      (targetYm ? "対象月以外でスキップ：" : "直近2ヶ月以外でスキップ：") + oldMonthSkippedCount + "件" + String.fromCharCode(10) +
       "失敗：" + failedFiles.length + "件" + String.fromCharCode(10) +
       String.fromCharCode(10) +
       failedFiles.join(String.fromCharCode(10)) + String.fromCharCode(10) +
@@ -4207,7 +4240,7 @@ function createPayrollPdfFromTemplate(ssArg, targetYm) {
       "給与明細PDFの作成が完了しました。" + String.fromCharCode(10) +
       "作成済：" + createdCount + "件" + String.fromCharCode(10) +
       "既存明細ありでスキップ：" + skippedFiles.length + "件" + String.fromCharCode(10) +
-      "直近2ヶ月以外でスキップ：" + oldMonthSkippedCount + "件";
+      (targetYm ? "対象月以外でスキップ：" : "直近2ヶ月以外でスキップ：") + oldMonthSkippedCount + "件";
 
     if (noStaffFolderFiles.length > 0) {
       message +=
@@ -4542,7 +4575,7 @@ function createGmoTransferCsv(ssArg, targetYm) {
     "GMO振込CSV処理が完了しました。" + String.fromCharCode(10) +
     "作成：" + createdCsvCount + "件" + String.fromCharCode(10) +
     "既存CSVありでスキップ：" + skippedCsvCount + "件" + String.fromCharCode(10) +
-    "直近2ヶ月以外でスキップ：" + oldMonthSkippedRowCount + "行";
+    (targetYm ? "対象月以外でスキップ：" : "直近2ヶ月以外でスキップ：") + oldMonthSkippedRowCount + "行";
 
   if (skippedCsvFiles.length > 0) {
     message +=
@@ -4762,7 +4795,7 @@ function runPayrollSummaryOnly() {
 function runPayrollFilesAfterReview() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ym = previousMonthKey_(new Date());
-  createWageLedger(ss);
+  createWageLedger(ss, ym);
   createPayrollPdfFromTemplate(ss, ym);
   createGmoTransferCsv(ss, ym);
 }
@@ -4788,7 +4821,9 @@ function payrollAlert_(message) {
 /**
  * 賃金台帳の自動更新・蓄積
  */
-function createWageLedger(ssArg) {
+// targetYm（yyyy-MM）を渡すとその月の行だけを書く。支払済みの月の記録を、
+// 計算し直した値で上書きしないため（給与チェックが支払済み月の変化を見つけるのに使う）。
+function createWageLedger(ssArg, targetYm) {
   const ss = spreadsheetArg_(ssArg);
   const payrollSheet = ss.getSheetByName("給与集計");
   let ledgerSheet = ss.getSheetByName("賃金台帳");
@@ -4852,6 +4887,7 @@ function createWageLedger(ssArg) {
     const memo = row[12] || "";
 
     if (!payDate || !staffName) continue;
+    if (targetYm && formatPayrollYmKey_(row[0]) !== targetYm) continue;
 
     const total = basePay + travelCost + incentive + referral + management;
     const outputRow = [
@@ -11314,6 +11350,9 @@ function onOpen() {
     .addItem("担当継続1年の昇給設定を作成", "setupAnnualRaiseSheet")
     .addItem("⚡ LIFF表示用マスタを更新", "updateLiffDisplayMaster")
     .addSeparator()
+    .addItem("🔍 給与チェックをやり直す（前月分）", "recheckPayroll")
+    .addItem("✅ 給与：確認済み→明細作成・フォルダへ", "approvePayrollAndCreateFiles")
+    .addItem("⚙️ 毎月の給与自動処理を設定", "setupPayrollAutoTrigger")
     .addItem("💰 給与集計だけ更新", "runPayrollSummaryOnly")
     .addItem("📄 給与明細PDF・振込CSVを作成（前月分）", "runPayrollFilesAfterReview")
     .addItem("📁 給与明細PDFをスタッフフォルダへ移動", "movePayrollPdfsToStaffFolders")

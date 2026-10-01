@@ -1120,6 +1120,18 @@
           <button type="button" class="secondary" onclick="runAdminAction('adminMaintenanceStatus', null, this)">自動実行の状態を確認</button>
         </div>
       </div>
+      <div class="admin-section-title">給与</div>
+      <div class="admin-toolbox">
+        <div class="admin-toolbox-note">
+          毎月1日8:00ごろ、前月分の照合・集計・チェックを自動で行い、結果を「給与チェック」シートに書いて止まります（LINEでの通知はしません）。確認・修正のあと「確認済み→明細作成」を押すと、明細PDFをスタッフフォルダへ入れ、振込CSVを確定フォルダに置きます。銀行への振込登録は手作業です。
+        </div>
+        <div class="admin-action-row">
+          <button type="button" class="secondary" onclick="runAdminAction('adminPayrollRecheck', null, this)">給与チェックをやり直す</button>
+          <button type="button" class="secondary" onclick="if (confirm('前月分を集計し直して、給与明細PDFと振込CSVを作り、PDFをスタッフフォルダへ入れます。スタッフから明細が見えるようになります。よろしいですか？')) runAdminAction('adminPayrollApprove', null, this)">給与：確認済み→明細作成</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminSetupPayrollAuto', null, this)">給与の自動処理を設定</button>
+          <button type="button" class="secondary" onclick="runAdminAction('adminPayrollStatus', null, this)">給与の自動処理の状態</button>
+        </div>
+      </div>
       <div class="admin-section-title">代理表示テスト</div>
       <div class="admin-toolbox">
         <div class="admin-toolbox-note">
