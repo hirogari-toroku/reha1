@@ -47,6 +47,9 @@ const IMPORTANT_VIDEO_URL_HEADER = "説明動画URL";
 const IMPORTANT_CONSENT_FORM_URL_HEADER = "同意フォームURL";
 const DEFAULT_REHAB_UNIT_PRICE = 7500;
 const COUPON_START_DATE_TEXT = "2026/04/20";
+// 利用者マスタのこの列が「対象外」の利用者は、回数券を計算・表示せず、お知らせも送らない。
+const COUPON_MANAGEMENT_HEADER = "回数券管理";
+const COUPON_EXCLUDED = "対象外";
 const PDF_EXPORT_WAIT_MS = 1000;
 const PDF_EXPORT_MAX_RETRIES = 5;
 const TEST_USER_NAME = "テスト利用者";
@@ -6739,9 +6742,11 @@ function updateCouponManagementLocked_(targetUserName) {
   const existingMemoMap = getExistingCouponMemoMap_(couponSheet);
   const users = getCouponUsers_(userSheet).filter(user =>
     !targetUserName || normalizeName_(user.userName) === normalizeName_(targetUserName));
+  if (targetUserName && users.length === 1 && users[0].excluded) return;
   if (targetUserName && users.length !== 1) throw new Error("回数券の対象利用者を一意に特定できません。");
   const baselineMap = getCouponBaselineMap_(ss);
-  validateNewCouponPayments_(users, getCouponPaymentEventsByUser_(nyushukkinSheet));
+  const includedUsers = users.filter(user => !user.excluded);
+  validateNewCouponPayments_(includedUsers, getCouponPaymentEventsByUser_(nyushukkinSheet));
   const paymentMap = getUserPaymentMap_(nyushukkinSheet, baselineMap);
   const usageMap = getUserUsageMap_(visitSheet, baselineMap);
   const currentMonthKey = Utilities.formatDate(new Date(), "Asia/Tokyo", "yyyy-MM");
@@ -6765,7 +6770,7 @@ function updateCouponManagementLocked_(targetUserName) {
     "メモ"
   ]];
 
-  users.forEach(user => {
+  includedUsers.forEach(user => {
     const userName = user.userName;
     const unitPrice = user.unitPrice || existingMemoMap[userName]?.unitPrice || DEFAULT_REHAB_UNIT_PRICE;
     const baseline = baselineMap[normalizeName_(userName)] || {
@@ -6796,7 +6801,7 @@ function updateCouponManagementLocked_(targetUserName) {
       userName,
       couponBalance,
       unpaidAmount,
-      lastPaymentDate,
+      formatCouponDate_(lastPaymentDate),
       lastPaymentAmount,
       unitPrice,
       shortageAmount,
@@ -6997,6 +7002,7 @@ function formatCouponUpdateReportMessage_(report) {
 function getCouponUsers_(userSheet) {
   const values = userSheet.getDataRange().getValues();
   const policyCol = pricingColumn_(values[0], USER_PRICING_HEADER);
+  const couponCol = values[0].indexOf(COUPON_MANAGEMENT_HEADER);
   const users = [];
   const seen = {};
 
@@ -7009,6 +7015,7 @@ function getCouponUsers_(userSheet) {
     users.push({
       userName,
       pricingPolicy: policy,
+      excluded: couponCol >= 0 && String(values[i][couponCol] || "").trim() === COUPON_EXCLUDED,
       unitPrice: policy === NEW_PRICING ? 9250 : Number(values[i][4]) || DEFAULT_REHAB_UNIT_PRICE
     });
   }
@@ -7158,6 +7165,13 @@ function getCouponDateKey_(value) {
   const date = parseDateForCoupon_(value);
   if (!date) return String(value || "").trim();
   return Utilities.formatDate(date, "Asia/Tokyo", "yyyy-MM-dd");
+}
+
+// 入出金明細の取引日は「20260915」のような8桁で入っている。そのまま書くと日付の表示形式の
+// セルでは通し番号として扱われ「57372/06/16」のようになるため、日付の文字列にして書く。
+function formatCouponDate_(value) {
+  const date = parseDateForCoupon_(value);
+  return date ? Utilities.formatDate(date, "Asia/Tokyo", "yyyy/MM/dd") : "";
 }
 
 function getCouponMonthKey_(value) {

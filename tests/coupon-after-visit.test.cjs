@@ -112,3 +112,37 @@ test('LIFF saves the end visit before coupon refresh and returns success with wa
   assert.match(result.message, /回数券残数の更新は未完了/);
   assert.deepEqual(events, ['saved', 'coupon']);
 });
+
+test('users marked 対象外 are skipped without error and dropped from the full refresh', () => {
+  const { c, writes } = fixture();
+  c.getCouponUsers_ = () => [
+    { userName: 'A', unitPrice: 7500, pricingPolicy: '旧料金' },
+    { userName: 'X', unitPrice: 7500, pricingPolicy: '旧料金', excluded: true }
+  ];
+  c.getUserPaymentMap_ = () => ({ A: { total: 7500, lastDate: '20260915', lastAmount: 7500, monthly: {} } });
+  c.Utilities = { formatDate: (date, tz, pattern) => pattern === 'yyyy/MM/dd'
+    ? date.getFullYear() + '/' + String(date.getMonth() + 1).padStart(2, '0') + '/' + String(date.getDate()).padStart(2, '0')
+    : '2026-09' };
+  c.bumpReadCache_ = () => {};
+  c.updateCouponManagementLocked_('X');
+  assert.equal(writes.length, 0);
+
+  const range = { setValues: values => writes.push({ values }), setBackground: () => range, setFontColor: () => range, setFontWeight: () => range, setWrap: () => range };
+  const sheet = { clearContents() {}, setFrozenRows() {}, getRange: () => range };
+  c.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: name => name === '回数券管理' ? sheet : {} }), flush() {} };
+  c.updateCouponManagementLocked_();
+  const rows = writes[0].values;
+  assert.equal(JSON.stringify(rows.slice(1).map(row => row[0])), '["A"]');
+  assert.equal(rows[1][3], '2026/09/15');
+});
+
+test('the 回数券管理 column marks a user as excluded only when it says 対象外', () => {
+  const c = context();
+  const values = [
+    ['利用者名', '', '', '', '1回単価', '利用料金区分', '回数券管理'],
+    ['A', '', '', '', 7500, '', ''],
+    ['X', '', '', '', 7500, '', ' 対象外 ']
+  ];
+  const users = c.getCouponUsers_({ getDataRange: () => ({ getValues: () => values }) });
+  assert.equal(JSON.stringify(users.map(user => [user.userName, user.excluded])), JSON.stringify([['A', false], ['X', true]]));
+});
