@@ -11,6 +11,7 @@ function fixture(rows = []) {
   c.ensureLineUserDirectorySheet_ = () => sheet;
   c.LockService = {getScriptLock: () => ({tryLock: () => true, releaseLock() {released++;}})};
   c.SpreadsheetApp = {flush() {}, getActiveSpreadsheet: () => ({getSheetByName() {throw Error('unexpected master read');}})};
+  c.findRegisteredAccountKind_ = () => '';
   return {c,rows,get reads() {return reads;},get released() {return released;}};
 }
 test('registration captures only directory data, without granting access or master scans', () => {
@@ -41,4 +42,33 @@ test('staff registration is capture only, menu capture keeps LIFF identity separ
   f.c.saveRegistrationContact_({},id,'staff',{messaging:true,source:'公式LINE登録メニュー',message:'4'});
   assert.equal(f.rows.length,2);
   assert.equal(f.rows[1][2],id); assert.equal(f.rows[1][3],'');
+});
+
+test('registered users and staff are told so and nothing is saved', () => {
+  const f = fixture();
+  f.c.findRegisteredAccountKind_ = () => 'user';
+  const user = f.c.logRegisterLiffLogin_(id,'表示名');
+  assert.equal(user.success,true); assert.equal(user.registered,'user'); assert.match(user.message,/予約確認/);
+  f.c.findRegisteredAccountKind_ = () => 'staff';
+  assert.equal(f.c.logRegisterLiffLogin_(id,'表示名').registered,'staff');
+  assert.equal(f.c.logStaffRegisterLiffLogin_(id,'表示名').registered,'staff');
+  assert.equal(f.rows.length,0);
+  f.c.findRegisteredAccountKind_ = () => 'user';
+  assert.equal(f.c.logStaffRegisterLiffLogin_(id,'表示名').success,true);
+  assert.equal(f.rows.length,1);
+});
+test('registered kind: staff first, confirmed user link next, unclear link states fall back to registration', () => {
+  const f = fixture();
+  let staff = '未登録', link = null;
+  f.c.getStaffNameCached_ = () => staff;
+  f.c.userLinkResolve_ = () => { if (link instanceof Error) throw link; return link; };
+  delete f.c.findRegisteredAccountKind_;
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../gas/Registration.js'),'utf8'), f.c);
+  assert.equal(f.c.findRegisteredAccountKind_({},'bad'),'');
+  assert.equal(f.c.findRegisteredAccountKind_({},id),'');
+  link = {id:'1',name:'x'}; assert.equal(f.c.findRegisteredAccountKind_({},id),'user');
+  staff = 'スタッフ'; assert.equal(f.c.findRegisteredAccountKind_({},id),'staff');
+  staff = '未登録'; link = Object.assign(new Error('x'),{userLinkSafe:true});
+  assert.equal(f.c.findRegisteredAccountKind_({},id),'');
+  link = new Error('boom'); assert.throws(() => f.c.findRegisteredAccountKind_({},id));
 });

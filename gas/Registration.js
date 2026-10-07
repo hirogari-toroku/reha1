@@ -1,3 +1,18 @@
+// The rich menu "新規利用登録" is shown to everyone, so registered users and staff can open it too.
+// Tell them they are already registered instead of sending them to the application form again.
+// The ID is not verified here, so only the kind ("user" / "staff") is returned, never a name.
+function findRegisteredAccountKind_(ss, lineUserId) {
+  const id = String(lineUserId || "").trim();
+  if (!/^U[0-9a-f]{32}$/.test(id)) return "";
+  if (getStaffNameCached_(ss, id) !== "未登録") return "staff";
+  try {
+    if (userLinkResolve_(ss, id)) return "user";
+  } catch (error) {
+    if (!error.userLinkSafe) throw error;
+  }
+  return "";
+}
+
 // Registration captures an unverified contact only; it never grants schedule access.
 function saveRegistrationContact_(ss, lineUserId, displayName, options) {
   options = options || {};

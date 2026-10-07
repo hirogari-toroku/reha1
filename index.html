@@ -1929,6 +1929,10 @@
             setMessage((data && data.message) || "LINE情報の保存を確認できませんでした。");
             return data;
           }
+          if (data.registered) {
+            showRegisteredNotice(data, "ご利用登録はお済みです");
+            return data;
+          }
           if (registrationTimingEnabled) {
             const end = performance.now();
             const seconds = ms => (ms / 1000).toFixed(2) + "秒";
@@ -1971,6 +1975,10 @@
             setMessage((data && data.message) || "LINE情報の保存を確認できませんでした。");
             return data;
           }
+          if (data.registered) {
+            showRegisteredNotice(data, "スタッフ登録はお済みです");
+            return data;
+          }
           scheduleRegistrationFormOpen(openStaffRegistrationForm, data.message || "LINE情報を保存しました。スタッフ登録フォームへ移動します。");
           return data;
         })
@@ -1993,6 +2001,15 @@
         return;
       }
       window.location.href = REGISTRATION_FORM_URL;
+    }
+
+    // Already registered: show a notice instead of the form. Applying for another person
+    // from the same LINE is rare, so no button is offered (2026-10-07).
+    function showRegisteredNotice(data, title) {
+      document.querySelector(".register-card strong").innerText = title;
+      document.getElementById("registerDescription").innerText = data.message || "";
+      document.getElementById("registerOpenForm").classList.add("hidden");
+      setMessage("");
     }
 
     function scheduleRegistrationFormOpen(openFn, message) {

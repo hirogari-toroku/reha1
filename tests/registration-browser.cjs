@@ -3,7 +3,7 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
 (async () => {
   const browser = await chromium.launch({headless:true,channel:'chrome'});
   try {
-    for (const mode of ['success','failure','timing']) {
+    for (const mode of ['success','failure','timing','registered']) {
       const success = mode !== 'failure';
       const page = await browser.newPage({viewport:{width:390,height:844}});
       const calls = [], opened = [];
@@ -13,18 +13,20 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
       await page.route('https://script.google.com/**', async r => {
         assert.equal(r.request().method(),'POST');
         calls.push(r.request().postDataJSON().action);
-        await r.fulfill({contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify({success,message:success?'保存しました':'保存失敗'})});
+        await r.fulfill({contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify(mode === 'registered' ? {success:true,registered:'user',message:'すでにご利用登録がお済みです。'} : {success,message:success?'保存しました':'保存失敗'})});
       });
       await page.goto('https://hirogari-toroku.github.io/reha1/?mode=register' + (mode === 'timing' ? '&timing=1' : ''));
       await page.waitForFunction(() => !document.getElementById('registerOpenForm').disabled);
       if (mode === 'timing') await page.getByText(/ここまで合計/).waitFor();
+      else if (mode === 'registered') await page.waitForFunction(() => document.getElementById('registerDescription').innerText.includes('お済みです'));
       else if (success) await page.waitForFunction(() => document.getElementById('message').innerText.includes('保存しました'));
       await page.waitForTimeout(150);
       assert.deepEqual(calls,['logRegisterLiffLogin']);
       assert.equal(opened.length,mode === 'success'?1:0);
       if(mode === 'success') assert.match(opened[0],/^https:\/\/docs.google.com\/forms\//);
+      if(mode === 'registered') assert.equal(await page.locator('#registerOpenForm').isVisible(),false);
       await page.close();
     }
-    console.log('Registration sends one GAS request; opens form on success only');
+    console.log('Registration sends one GAS request; opens form on success only; registered users see a notice');
   } finally { await browser.close(); }
 })().catch(e => {console.error(e);process.exitCode=1;});

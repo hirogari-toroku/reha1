@@ -928,11 +928,26 @@ function logUserLiffLogin_(lineUserId, displayName) {
 }
 
 function logRegisterLiffLogin_(lineUserId, displayName) {
-  return saveRegistrationContact_(SpreadsheetApp.getActiveSpreadsheet(), lineUserId, displayName);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const registered = findRegisteredAccountKind_(ss, lineUserId);
+  if (registered === "user") {
+    return { success: true, registered: registered,
+      message: "すでにご利用登録がお済みです。ご予約の確認は、メニューの「予約確認」から開いてください。" };
+  }
+  if (registered === "staff") {
+    return { success: true, registered: registered,
+      message: "スタッフとして登録済みのLINEです。新しく利用登録する必要はありません。" };
+  }
+  return saveRegistrationContact_(ss, lineUserId, displayName);
 }
 
 function logStaffRegisterLiffLogin_(lineUserId, displayName) {
-  return saveRegistrationContact_(SpreadsheetApp.getActiveSpreadsheet(), lineUserId, displayName,
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (findRegisteredAccountKind_(ss, lineUserId) === "staff") {
+    return { success: true, registered: "staff",
+      message: "スタッフ登録はお済みです。もう一度登録する必要はありません。" };
+  }
+  return saveRegistrationContact_(ss, lineUserId, displayName,
     { source: "スタッフ新規登録LIFF" });
 }
 
